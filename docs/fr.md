@@ -1,67 +1,114 @@
-# Template de démonstration
+# IPX800 pour Gladys
 
-Ceci est la documentation utilisateur de l'intégration. Gladys ré-héberge ce
-fichier et affiche un lien **Documentation** permanent vers lui dans l'écran
-de configuration (dans la langue de l'utilisateur, avec l'anglais en repli) —
-c'est au moment de configurer que l'utilisateur en a le plus besoin. Gardez
-les courtes indications d'accueil dans les blocs `section` du `config_schema`
-du manifest ; mettez ici le pas-à-pas détaillé (captures d'écran, dépannage…).
+Amène dans Gladys un **IPX800 V4 ou V5 de GCE Electronics** par son API HTTP
+locale : ses relais, ses entrées, les zones de fil pilote de ses extensions
+X-4FP et ses capteurs X-THL (température, humidité, luminosité).
+
+> Jamais testé avec un vrai appareil : écrit d’après la documentation GCE de
+> l’API V4 et les bibliothèques libres des intégrations Home Assistant
+> (pypx800, pypx800v5). Dites-nous ce que vous voyez sur le vôtre. Sans lien
+> avec GCE Electronics.
+
+## Installation
+
+1. Dans l’IPX800, créez une **clé d’API** : V5 dans Système > API, V4 dans
+   Réseau > API (cochez l’accès API).
+2. Dans Gladys, Intégrations > IPX800 : choisissez le modèle (V5 ou V4),
+   saisissez l’adresse de l’IPX800 (par ex. `192.168.1.50`, donnez-lui une
+   adresse fixe dans votre box) et la clé d’API, puis enregistrez.
+3. « Tester la connexion » lit l’IPX800 tout de suite (une fois un intervalle
+   passé depuis la dernière lecture) et montre ce qu’il a trouvé.
+4. Dans Découverte, créez les appareils voulus.
+
+L’IPX800 veut la clé d’API dans l’adresse de chaque requête, en http simple :
+qui peut écouter votre réseau local peut la lire, comme avec les applis de
+l’IPX800. La clé est gardée par Gladys dans sa base, jamais réaffichée,
+envoyée seulement à l’IPX800, et jamais écrite dans les journaux ni dans les
+fichiers de l’intégration.
 
 ## Ce que vous obtenez
 
-Six appareils de démonstration apparaissent après l'installation : une
-station météo (vraies données Open-Meteo), un interrupteur, une lampe
-variable, une prise connectée avec mesure de puissance, un détecteur de
-mouvement et une caméra.
+| Sur l’IPX800                  | Dans Gladys                                                        | Code (dans le nom)         |
+| ----------------------------- | ------------------------------------------------------------------ | -------------------------- |
+| Relais (V4 1-56, V5 1-8)      | lecture seule, ou interrupteur / lumière si vous le listez         | `R3`                       |
+| Sortie d’un X-8R (V5)         | idem                                                               | `X8R12-3` (12 : son id)    |
+| Entrée (V4 1-56, V5 1-8)      | une entrée binaire (lecture seule)                                 | `D3`                       |
+| Entrée d’un X-8D / X-24D (V5) | idem                                                               | `X8D5-2`, `X24D6-10`       |
+| Zone d’un X-4FP               | fil pilote (Arrêt, Hors-gel, Éco, Confort, Confort -1, Confort -2) | `FP5` (V4), `X4FP7-2` (V5) |
+| X-THL                         | température (°C), humidité (%), luminosité (lux)                   | `THL1` (V4), `XTHL9` (V5)  |
 
-## Configuration
+**V5** : l’intégration liste elle-même les extensions. **V4** : l’API répond
+56 relais et 56 entrées, câblés ou non ; l’intégration montre les 8 relais et
+8 entrées de l’IPX, et ce que vous listez dans « Extensions d’un IPX800 V4 »,
+par ex. `R9-R16, D9-D16, FP1-FP4, THL1` (la zone n de fil pilote de la V4 est
+la zone z du X-4FP e : n = 4 × (e − 1) + z).
 
-1. Ouvrez l'onglet **Configuration** de l'intégration.
-2. Renseignez la **latitude** et la **longitude** que la station météo de
-   démonstration doit observer (Paris par défaut), et choisissez votre unité
-   de température. L'**intervalle de rafraîchissement** règle la fréquence
-   de lecture de la station météo et de la puissance de la prise : toutes
-   les 5 minutes par défaut, toutes les minutes au plus.
-3. Enregistrez : les appareils apparaissent dans l'onglet **Découverte**,
-   prêts à être ajoutés.
+L’IPX800 est lu toutes les 10 secondes par défaut (5 s au moins). Une valeur
+que l’IPX800 ne donne pas (absente, un texte, hors plage) n’est pas publiée :
+jamais comme 0.
 
-Le réglage **Préférer la connexion locale** pilote la prise de
-démonstration : elle affiche en badge le canal réellement utilisé (local ou
-cloud), avec un point orange quand elle fonctionne en mode dégradé (local
-refusé, bascule cloud).
+## Relais : en lecture seule sauf ceux que vous listez
 
-## Actions
+Tous les relais sont **en lecture seule** par défaut. Pour en piloter un
+depuis Gladys, listez-le dans « Relais pilotables par Gladys », par ex.
+`R1, R3:light, X8R12-2` (`:light` en fait une lumière, sinon un
+interrupteur). Un interrupteur ou une lumière obéit à tout « éteins tout » de
+Google, Alexa, du MCP et des scènes : n’y mettez jamais une pompe, un
+congélateur, une VMC, un chauffage, une gâche ni une vanne. Un relais retiré
+de la liste repasse aussitôt en lecture seule (son ancienne fonctionnalité
+reste dans Gladys, mais ses commandes sont refusées : supprimez-la si vous
+voulez).
 
-- **Tester le fournisseur météo** — effectue une requête en direct vers
-  Open-Meteo et affiche la température et l'humidité actuelles sous le
-  bouton.
-- **Identifier un appareil** — choisissez un de vos appareils dans la liste
-  et il se signale (la lampe de démonstration « clignote » dans les logs).
+## Fil pilote
 
-## Scènes
+- **Arrêt** et **Hors-gel** partent tout de suite, sans l’option, même
+  pendant une pause après des lectures en échec, avec la file de commandes
+  pleine, pendant une lecture (elle est interrompue), et avant la première
+  lecture après un redémarrage (les identifiants V5 sont gardés dans
+  `/data`). De même pour l’extinction d’un relais que vous avez listé.
+- **Éco, Confort, Confort -1, Confort -2** pilotent le chauffage : ils sont
+  désactivés par défaut. Cochez « Autoriser Éco et Confort depuis Gladys »
+  pour les permettre ; tout utilisateur de Gladys, toute scène et
+  l’application Gladys peuvent alors les choisir. Ils sont refusés tant que
+  l’état ne peut pas être écrit dans `/data`.
 
-L'intégration ajoute ses propres cartes à l'éditeur de scènes (Gladys 5.1
-ou plus récent), dans la catégorie **Intégrations** :
+Un Arrêt ou un Hors-gel n’est refusé que si : la configuration n’est pas
+encore lue dans Gladys ; l’adresse ou la clé d’API manque ; la zone n’est pas
+connue (V4 : absente des extensions ; V5 : jamais lue, même avant un
+redémarrage) ; la valeur n’est pas l’un des six modes. L’extinction d’un
+relais est refusée si le relais n’est pas listé. Quand l’IPX800 ne le prend
+pas en 250 ms, il est gardé et renvoyé par les lectures suivantes qui
+montrent un autre mode, et après un redémarrage.
 
-- **Mouvement détecté** (déclencheur) — lance la scène quand un détecteur
-  de démonstration voit bouger quelque chose. Choisissez éventuellement le
-  détecteur et ce qui a bougé (personne, animal) ; laissés vides, toute
-  détection correspond. Les actions suivantes peuvent lire ce qui a bougé
-  avec `{{triggerEvent.data.target}}`.
-- **Identifier un appareil** (action) — fait se signaler l'appareil choisi.
-  Elle indique si l'appareil a pu se signaler, pour que les actions
-  suivantes puissent en dépendre.
+Un Arrêt ou Hors-gel que les lectures ne montrent pas est renvoyé, 3 fois au
+plus ; puis l’état le dit (vérifiez sur place). Il reste tenu jusqu’à ce
+qu’une commande plus récente sur cette zone parte (votre clic), un autre
+Arrêt / Hors-gel, ou, une fois appliqué, un autre mode lu deux fois de suite
+(changé sur l’IPX800 lui-même, par ses scénarios ou sa page) : jamais par le
+temps. Ce qui a été demandé avant un Arrêt sur la même zone et attend encore
+est annulé : rien ne part après lui.
 
-## Tableau de bord
+## Commandes
 
-Ajoutez le widget **État de la démo** à un tableau de bord : il affiche en
-direct la température de la station météo et la puissance de la prise du
-bureau, la connexion utilisée par la prise (en orange si dégradée) et la
-position observée. Son bouton **Identifier la lampe** fait se signaler la
-lampe de démonstration.
+Une commande est écrite dans les 3,5 s du clic ou refusée avec « rien n’a été
+envoyé ». Elle est ensuite relue sur l’IPX800 : la valeur demandée est un
+succès ; une autre valeur est « pas encore appliquée » ; pas de réponse à
+temps donne « envoyée, sans confirmation ». Deux lectures suivent, 5 s et
+20 s après. Les commandes d’une scène sont écrites l’une après l’autre, puis
+relues une fois.
 
-## Dépannage
+## Pauses et refus
 
-L'intégration journalise tout ce qu'elle fait : consultez les logs de
-l'intégration depuis l'interface Gladys (ou `docker logs` sur l'hôte) avec
-`LOG_LEVEL=debug` pour le détail complet.
+Une lecture en échec met en pause 10 s, 30 s, 1 min, 2 min puis 5 min (une
+minute au moins quand l’IPX800 répond 429 ou 503), pause gardée au
+redémarrage ; Éco, Confort et l’allumage d’un relais sont refusés jusqu’à la
+fin de la pause. Une clé d’API refusée par l’IPX800 (401, 403) arrête les lectures
+jusqu’à ce que vous changiez la clé ou que « Tester la connexion » aboutisse.
+
+## Limites
+
+- X-8R, X-8D, X-24D, X-4FP et X-THL seulement ; compteurs, volets X-4VR,
+  variateurs, X-PWM, entrées et sorties virtuelles ne sont pas dans cette
+  version.
+- Un IPX800 par intégration.
+- http seulement (l’IPX800 répond en http sur le réseau local).
