@@ -676,3 +676,354 @@ test('r2: /data is never written between the reset of a start and its read of /d
   assert.ok(second.app.guards.has('fp1'));
   second.app.stop();
 });
+
+// --- Review r3 ----------------------------------------------------------------------
+
+/** s17 of the review: Frost refused at its first try, Off clicked 15 ms into its 50 ms wait. */
+const olderFrostThenOff = async ({ poll }) => {
+  const device = created('pilot-wire', 'fp1');
+  const world = fakeIpx();
+  world.FP[1] = 'Confort';
+  const ctx = await setup({ config: v4({ poll_interval: poll }), devices: [device], world });
+  await ctx.start();
+  world.refuseConnect = 1;
+  const feature = device.features[0];
+  const frost = ctx.gladys.fake.setValue(device, feature, PILOT.FROST_PROTECTION);
+  const off = new Promise((r) => ctx.clock.timers.setTimeout(r, 15)).then(() =>
+    ctx.gladys.fake.setValue(device, feature, PILOT.OFF),
+  );
+  const [f, o] = await ctx.act(Promise.all([frost, off]));
+  return { ...ctx, f, o };
+};
+const leftWrites = (world) =>
+  world
+    .writes()
+    .filter((w) => w.sentAt !== undefined)
+    .map((w) => /(SetFP\d\d=\d|SetR=\d\d|ClearR=\d\d)$/.exec(w.path)?.[1]);
+
+test('r3 B1 (s17): an older Frost waiting to try again never leaves after a newer Off', async () => {
+  const { app, world, act, clock, f, o } = await olderFrostThenOff({ poll: 300 });
+  await act(new Promise((r) => clock.timers.setTimeout(r, 500)));
+  assert.deepEqual(leftWrites(world), ['SetFP01=3'], 'only the Off left');
+  assert.equal(world.FP[1], 'Arret');
+  assert.match(f.error, /Annulée/);
+  assert.equal(o.success, true, o.error);
+  app.stop();
+});
+
+test('r3 B1 (s17b): that newer Off stays held, never lifted as "changed on the IPX"', async () => {
+  const { app, world, wait } = await olderFrostThenOff({ poll: 5 });
+  await wait(30 * SECOND);
+  const guard = app.guards.get('fp1');
+  assert.ok(guard, 'the Off is still held');
+  assert.equal(guard.value, PILOT.OFF);
+  assert.equal(guard.confirmed, true);
+  assert.equal(world.FP[1], 'Arret');
+  assert.ok(!leftWrites(world).includes('SetFP01=2'), 'the Frost never left');
+  app.stop();
+});
+
+test('r3 B1: a retry already queued is checked again right before it leaves', async () => {
+  const zones = [created('pilot-wire', 'fp1'), created('pilot-wire', 'fp2')];
+  const world = fakeIpx();
+  world.FP[1] = 'Confort';
+  world.FP[2] = 'Confort';
+  const { app, start, act, gladys, clock } = await setup({
+    config: v4({ poll_interval: 300 }),
+    devices: zones,
+    world,
+  });
+  await start();
+  // Frost on fp1 refused at its first try; an Off on fp2 holds the lane 500 ms, so the
+  // retry of the Frost waits in the queue when an Off is clicked on fp1.
+  world.refuseConnect = 1;
+  world.latency = (r) => (/SetFP02=3/.test(r.path) ? 500 : 20);
+  const later = (ms, zone, mode) =>
+    new Promise((r) => clock.timers.setTimeout(r, ms)).then(() =>
+      gladys.fake.setValue(zone, zone.features[0], mode),
+    );
+  const frost = gladys.fake.setValue(zones[0], zones[0].features[0], PILOT.FROST_PROTECTION);
+  const [f, , o] = await act(
+    Promise.all([frost, later(10, zones[1], PILOT.OFF), later(120, zones[0], PILOT.OFF)]),
+  );
+  await act(new Promise((r) => clock.timers.setTimeout(r, 500)));
+  assert.deepEqual(leftWrites(world), ['SetFP02=3', 'SetFP01=3']);
+  assert.equal(world.FP[1], 'Arret');
+  assert.match(f.error, /Annulée/);
+  assert.equal(o.success, true, o.error);
+  app.stop();
+});
+
+test('r3: an older command cut by the Off, then handled late by the IPX, never lifts the Off', async () => {
+  const device = created('pilot-wire', 'fp1');
+  const world = fakeIpx();
+  world.FP[1] = 'Eco';
+  const { app, start, act, wait, gladys, clock, lines } = await setup({
+    config: v4({ allow_heating_modes: true, poll_interval: 300 }),
+    devices: [device],
+    world,
+  });
+  await start();
+  // This IPX takes the Comfort 2 s after it came, though its request was cut by the Off.
+  world.latency = (r) => (/SetFP01=0/.test(r.path) ? 2 * SECOND : 20);
+  world.queue.push((r) => {
+    if (!/SetFP01=0/.test(r.path)) return undefined;
+    clock.timers.setTimeout(() => {
+      world.FP[1] = 'Confort';
+    }, 2 * SECOND);
+    return { json: { product: 'IPX800_V4', status: 'Success' } };
+  });
+  const feature = device.features[0];
+  const comfort = gladys.fake.setValue(device, feature, PILOT.COMFORT);
+  const off = new Promise((r) => clock.timers.setTimeout(r, 200)).then(() =>
+    gladys.fake.setValue(device, feature, PILOT.OFF),
+  );
+  const [c, o] = await act(Promise.all([comfort, off]));
+  assert.match(c.error, /Envoyée, sans confirmation/);
+  assert.equal(o.success, true, o.error);
+  await wait(30 * SECOND);
+  assert.equal(world.FP[1], 'Arret', 'the Off sent again over the late Comfort');
+  assert.equal(app.guards.get('fp1')?.value, PILOT.OFF, 'still held');
+  assert.ok(lines.some((l) => /FP1 shows an older command of the integration/.test(l)));
+  app.stop();
+});
+
+/** V4 with the heating modes allowed; `at(ms, zone, mode)` clicks `ms` from now (its ack). */
+const heating = async (poll) => {
+  const zones = [1, 2, 3].map((n) => created('pilot-wire', `fp${n}`));
+  const world = fakeIpx();
+  const ctx = await setup({
+    config: v4({ allow_heating_modes: true, poll_interval: poll }),
+    devices: zones,
+    world,
+  });
+  await ctx.start();
+  const at = (ms, zone, mode) =>
+    new Promise((r) => ctx.clock.timers.setTimeout(r, ms)).then(() =>
+      ctx.gladys.fake.setValue(zones[zone], zones[zone].features[0], mode),
+    );
+  const later = (ms, fn) => ctx.clock.timers.setTimeout(fn, ms);
+  return { ...ctx, at, later };
+};
+
+test('r3: a command of ours answered before the Off is no reason to keep it over a change on the IPX', async () => {
+  const { app, world, act, wait, at, later } = await heating(300);
+  // fp1: a Comfort answered, an Off 1 s later, then Comfort set on the IPX itself.
+  world.FP[1] = 'Eco';
+  await act(Promise.all([at(0, 0, PILOT.COMFORT), at(SECOND, 0, PILOT.OFF)]));
+  later(SECOND, () => (world.FP[1] = 'Confort'));
+  await wait(30 * SECOND);
+  assert.equal(app.guards.has('fp1'), false, 'released: changed on the IPX');
+  assert.equal(world.FP[1], 'Confort');
+  // fp2: a Frost still in flight when the Off comes, answered before the Off leaves; then
+  // Frost set on the IPX itself.
+  world.FP[2] = 'Confort';
+  world.latency = (r) => (/SetFP02=2/.test(r.path) ? 300 : 20);
+  await act(Promise.all([at(0, 1, PILOT.FROST_PROTECTION), at(100, 1, PILOT.OFF)]));
+  later(SECOND, () => (world.FP[2] = 'Hors Gel'));
+  await wait(30 * SECOND);
+  assert.equal(app.guards.has('fp2'), false, 'released: changed on the IPX');
+  assert.equal(world.FP[2], 'Hors Gel');
+  // fp3: a Comfort the IPX refuses ("status": "Error"), an Off 1 s later, then Comfort set on
+  // the IPX itself.
+  world.FP[3] = 'Eco';
+  world.queue.push((r) => (/SetFP03=0/.test(r.path) ? { json: { status: 'Error' } } : undefined));
+  const [refused] = await act(Promise.all([at(0, 2, PILOT.COMFORT), at(SECOND, 2, PILOT.OFF)]));
+  assert.match(refused.error, /répondu une erreur/);
+  later(SECOND, () => (world.FP[3] = 'Confort'));
+  await wait(30 * SECOND);
+  assert.equal(app.guards.has('fp3'), false, 'released: changed on the IPX');
+  assert.equal(world.FP[3], 'Confort');
+  app.stop();
+});
+
+test('r3: a command of ours left unanswered more than 5 s before the Off is no reason either', async () => {
+  const { app, world, act, wait, at, later } = await heating(300);
+  world.FP[1] = 'Eco';
+  // The Comfort is taken, its answer never comes (4.3 s); the Off 6 s after it left.
+  world.latency = (r) => (/SetFP01=0/.test(r.path) ? 10 * SECOND : 20);
+  const [c, o] = await act(Promise.all([at(0, 0, PILOT.COMFORT), at(6 * SECOND, 0, PILOT.OFF)]));
+  assert.match(c.error, /Envoyée, sans confirmation/);
+  assert.equal(o.success, true, o.error);
+  later(SECOND, () => (world.FP[1] = 'Confort'));
+  await wait(30 * SECOND);
+  assert.equal(app.guards.has('fp1'), false, 'released: changed on the IPX');
+  assert.equal(world.FP[1], 'Confort');
+  app.stop();
+});
+
+test('r3: after a restart, an old unanswered command of ours is no reason either', async () => {
+  const { app, world, act, wait, at } = await heating(5);
+  world.FP[1] = 'Eco';
+  world.latency = (r) => (/SetFP01=0/.test(r.path) ? 10 * SECOND : 20);
+  await act(Promise.all([at(0, 0, PILOT.COMFORT), at(6 * SECOND, 0, PILOT.OFF)]));
+  world.latency = 20;
+  await wait(10 * SECOND);
+  assert.equal(app.guards.get('fp1')?.confirmed, true);
+  // Comfort set on the IPX itself, then a new API key: the integration starts again, the
+  // Off taken back from /data; the first read after it shows the Comfort.
+  world.FP[1] = 'Confort';
+  world.key = 'An0therKey-7';
+  await app.configUpdated(
+    v4({ allow_heating_modes: true, poll_interval: 5, api_key: 'An0therKey-7' }),
+  );
+  assert.equal(app.guards.get('fp1')?.stale, undefined);
+  await wait(30 * SECOND);
+  assert.equal(app.guards.has('fp1'), false, 'released: changed on the IPX');
+  assert.equal(world.FP[1], 'Confort');
+  app.stop();
+});
+
+test('r3: an unanswered write of ours may land for one request time after it left, no longer', async () => {
+  const { app } = await setup({ config: v4() });
+  // A guard taken back from /data, already confirmed, sees only what this process wrote last.
+  app.lastWrites.set('fp1', { value: PILOT.COMFORT, sentAt: 1000, answered: false });
+  assert.ok(app.mayLand('fp1', PILOT.OFF, 1000 + TIMINGS.requestTimeout - 1));
+  assert.equal(app.mayLand('fp1', PILOT.OFF, 1000 + TIMINGS.requestTimeout), undefined);
+  assert.equal(app.mayLand('fp1', PILOT.COMFORT, 1001), undefined, 'same value: not older');
+  assert.equal(app.mayLand('fp2', PILOT.OFF, 1001), undefined);
+  app.stop();
+});
+
+test('r3: once a read shows the Off past the time our cut command could land, a change is a change', async () => {
+  const { app, world, act, wait, at, later } = await heating(5);
+  world.FP[1] = 'Eco';
+  // The Comfort is cut by the Off and never handled by this IPX.
+  world.latency = (r) => (/SetFP01=0/.test(r.path) ? 2 * SECOND : 20);
+  world.queue.push((r) =>
+    /SetFP01=0/.test(r.path) ? { json: { product: 'IPX800_V4', status: 'Success' } } : undefined,
+  );
+  const [c, o] = await act(Promise.all([at(0, 0, PILOT.COMFORT), at(200, 0, PILOT.OFF)]));
+  assert.match(c.error, /Envoyée, sans confirmation/);
+  assert.equal(o.success, true, o.error);
+  await wait(30 * SECOND);
+  assert.ok(app.guards.has('fp1'), 'held');
+  assert.equal(app.guards.get('fp1').stale, undefined, 'out of the way');
+  later(0, () => (world.FP[1] = 'Confort'));
+  await wait(20 * SECOND);
+  assert.equal(app.guards.has('fp1'), false, 'released: changed on the IPX');
+  assert.equal(world.FP[1], 'Confort');
+  app.stop();
+});
+
+/** A first start that read the IPX (the pace kept in /data), then these guards in /data. */
+const keptGuards = async (guards) => {
+  const store = memoryStore();
+  const first = await setup({ config: v4({ poll_interval: 300 }), store });
+  await first.start();
+  first.app.stop();
+  store.data.guards = guards.map((code) => ({
+    code,
+    kind: 'pilot-wire',
+    value: PILOT.OFF,
+    resends: 0,
+    confirmed: false,
+  }));
+  return { store, clock: first.clock };
+};
+
+test('r3 R5: Offs clicked before the configuration leave first at start, as clicks never cut by a later one', async () => {
+  const { store, clock } = await keptGuards(['fp3']);
+  const zones = [created('pilot-wire', 'fp1'), created('pilot-wire', 'fp2')];
+  const world = fakeIpx();
+  for (let n = 1; n <= 3; n += 1) world.FP[n] = 'Confort';
+  let calls = 0;
+  const { app, gladys, wait, act } = await setup({
+    config: v4({ poll_interval: 300 }),
+    devices: zones,
+    world,
+    store,
+    clock,
+    getConfig: async () => {
+      calls += 1;
+      if (calls <= 2) throw new Error('busy');
+      return v4({ poll_interval: 300 });
+    },
+  });
+  // The Off of fp1 takes 500 ms on the IPX; 100 ms into it, an Off is clicked on fp2.
+  let second;
+  world.latency = (r) => {
+    if (/SetFP01=3/.test(r.path) && !second) {
+      second = new Promise((res) => clock.timers.setTimeout(res, 100)).then(() =>
+        gladys.fake.setValue(zones[1], zones[1].features[0], PILOT.OFF),
+      );
+    }
+    return /SetFP01=3/.test(r.path) ? 500 : 20;
+  };
+  await app.onConnected(() => gladys.getConfig());
+  const kept = await act(gladys.fake.setValue(zones[0], zones[0].features[0], PILOT.OFF));
+  assert.match(kept.error, /envoyée dès sa lecture/);
+  await wait(10 * SECOND);
+  const ack = await act(second);
+  const sent = world.writes().filter((w) => w.sentAt !== undefined);
+  // The clicks first (the one adopted by the start, then the later one), then the /data guard.
+  assert.deepEqual(leftWrites(world), ['SetFP01=3', 'SetFP02=3', 'SetFP03=3']);
+  assert.ok(
+    sent.every((w) => w.end !== undefined),
+    'none cut',
+  );
+  assert.equal(ack.success, true, ack.error);
+  assert.deepEqual(world.FP.slice(1, 4), ['Arret', 'Arret', 'Arret']);
+  app.stop();
+  app.clearConfigTimer();
+});
+
+test('r3: a guard sent again and cut by a click before it left goes right behind that click', async () => {
+  const { store, clock } = await keptGuards(['fp2']);
+  const zones = [created('pilot-wire', 'fp1'), created('pilot-wire', 'fp2')];
+  const world = fakeIpx();
+  world.FP[1] = 'Confort';
+  world.FP[2] = 'Confort';
+  // The first connection for fp2 takes 200 ms: the click on fp1 cuts it before it leaves.
+  let slow = true;
+  world.connectDelay = (r) => (/SetFP02/.test(r.path) && slow ? ((slow = false), 200) : 0);
+  const { app, gladys, act } = await setup({
+    config: v4({ poll_interval: 300 }),
+    devices: zones,
+    world,
+    store,
+    clock,
+  });
+  const t0 = clock.elapsed;
+  app.connected(v4({ poll_interval: 300 }));
+  const ack = await act(
+    new Promise((r) => clock.timers.setTimeout(r, 50)).then(() =>
+      gladys.fake.setValue(zones[0], zones[0].features[0], PILOT.OFF),
+    ),
+  );
+  await act(new Promise((r) => clock.timers.setTimeout(r, 500)));
+  assert.equal(world.writes()[0].sentAt, undefined, 'the first try of fp2 never left');
+  const fp2 = world.writes().find((w) => /SetFP02=3/.test(w.path) && w.sentAt !== undefined);
+  assert.ok(fp2, 'the guard of fp2 left');
+  assert.ok(fp2.sentAt - t0 < SECOND, `left ${fp2.sentAt - t0} ms after the start`);
+  assert.equal(world.FP[2], 'Arret');
+  assert.equal(ack.success, true, ack.error);
+  app.stop();
+});
+
+test('r3: a guard cut before it left by a newer click on its own target is not tried again', async () => {
+  const { store, clock } = await keptGuards(['fp2']);
+  const zone = created('pilot-wire', 'fp2');
+  const world = fakeIpx();
+  world.FP[2] = 'Confort';
+  world.connectDelay = (r) => (/SetFP02=3/.test(r.path) ? 200 : 0);
+  const { app, gladys, act } = await setup({
+    config: v4({ poll_interval: 300 }),
+    devices: [zone],
+    world,
+    store,
+    clock,
+  });
+  app.connected(v4({ poll_interval: 300 }));
+  const ack = await act(
+    new Promise((r) => clock.timers.setTimeout(r, 50)).then(() =>
+      gladys.fake.setValue(zone, zone.features[0], PILOT.FROST_PROTECTION),
+    ),
+  );
+  await act(new Promise((r) => clock.timers.setTimeout(r, 500)));
+  assert.equal(world.writes().filter((w) => /SetFP02=3/.test(w.path)).length, 1, 'one try');
+  assert.deepEqual(leftWrites(world), ['SetFP02=2']);
+  assert.equal(world.FP[2], 'Hors Gel');
+  assert.equal(ack.success, true, ack.error);
+  app.stop();
+});

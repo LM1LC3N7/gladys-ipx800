@@ -86,7 +86,8 @@ kept in `/data` leaves the same way at start, without waiting for Gladys.
 When the IPX800 does not take it within 3.5 s (no connection), it is kept
 and sent again as soon as the IPX800 is free, before the read backs, by the
 next reads that show another mode, and after a restart. An Off clicked while
-another one gets no answer for 1 s interrupts it.
+another one gets no answer for 1 s interrupts it. A resend interrupted by a
+click before it left goes again right behind that click.
 
 An Off or Frost protection that the reads do not show is sent again, 3 times
 at most; then the status says so (check on site). A V5 zone with several
@@ -95,7 +96,10 @@ held until a later command on that zone leaves (your click), another Off /
 Frost protection, or, once applied, another mode read twice in a row
 (changed on the IPX800 itself, by its scenarios or its page): never by the
 time. Anything asked before an Off on the same zone and not yet sent is
-cancelled: it never leaves after it.
+cancelled, a Frost protection waiting to be tried again included: it never
+leaves after it. A mode the integration sent before the Off and that got no
+answer (cut by the Off, say), if the IPX800 still applies it in the 5 s
+after it left, is not a change on the IPX800: the Off is sent again.
 
 ## Commands
 

@@ -39,7 +39,9 @@
 //     are kept in memory until it comes. A guard is lifted by a later
 //     command on the target that left (a click), by another protective
 //     command, by the relay leaving the list, or once confirmed, by another
-//     value read twice in a row (changed on the IPX itself); never by the time.
+//     value read twice in a row (changed on the IPX itself, not an older
+//     command of ours handled late); never by the time. A newer click on the
+//     target stops the tries of an older one right before their first byte.
 //   - the others (a declared relay switched on, the heating modes Eco and
 //     Comfort behind `allow_heating_modes`): a bounded queue served one at a
 //     time; the option, the declaration and the deadline checked on arrival
@@ -144,8 +146,14 @@ export class IpxApp {
     this.failures = 0;
     this.offline = false;
     this.lastReason = undefined;
-    /** code -> guard of a protective command: { code, kind, value, resends, confirmed, other, seq, sentAt, inFlight }. */
+    /**
+     * code -> guard of a protective command: { code, kind, value, resends, confirmed, other,
+     * seq, sentAt, inFlight, stale }. `stale`: an older write of ours on the target that had
+     * left without an answer when the guard came (it may still land after it).
+     */
     this.guards = new Map();
+    /** code -> the last write that left: { value, sentAt, answered } (memory only). */
+    this.lastWrites = new Map();
     this.seq = 0;
     /** code -> { en, fr }: a command the read back contradicts, until a read shows it. */
     this.warnings = new Map();
@@ -392,9 +400,11 @@ export class IpxApp {
     });
     // The key is known: before any call to Gladys, the protective commands leave. Those
     // clicked before the configuration was read, then those kept in /data and not seen
-    // applied (after a restart or a new configuration), before the first read.
+    // applied (after a restart or a new configuration), before the first read. The clicks
+    // first, at their priority: no guard of /data starts before them only to be cut.
     const clicked = new Set(this.adoptPendingProtectives());
-    for (const guard of this.guards.values()) {
+    const kept = [...this.guards.values()].filter((guard) => !clicked.has(guard));
+    for (const guard of [...clicked, ...kept]) {
       if (clicked.has(guard)) {
         this.resendGuard(guard, PRIORITY.PROTECTIVE);
       } else if (!guard.confirmed && guard.resends < TIMINGS.resendMax) {
@@ -457,7 +467,7 @@ export class IpxApp {
       }
     }
     for (const g of saved.guards) {
-      this.guards.set(g.code, { ...g, seq: 0, sentAt: -Infinity, inFlight: false });
+      this.guards.set(g.code, this.makeGuard(g, mono));
     }
     // A relay no longer listed is never driven again, not even by a guard kept in /data.
     this.dropUnlistedGuards();
@@ -494,17 +504,7 @@ export class IpxApp {
         continue;
       }
       this.seq += 1;
-      const guard = {
-        code,
-        kind,
-        value,
-        resends: 0,
-        confirmed: false,
-        other: undefined,
-        seq: this.seq,
-        sentAt: -Infinity,
-        inFlight: false,
-      };
+      const guard = this.makeGuard({ code, kind, value, seq: this.seq });
       this.guards.set(code, guard);
       adopted.push(guard);
       this.logger.info(`ipx800: ${shownCode(code)} clicked before the configuration: sent now`);
@@ -654,7 +654,7 @@ export class IpxApp {
         if (loaded.key === this.config.key) {
           for (const g of loaded.guards) {
             if (!this.guards.has(g.code)) {
-              this.guards.set(g.code, { ...g, seq: 0, sentAt: -Infinity, inFlight: false });
+              this.guards.set(g.code, this.makeGuard(g));
             }
           }
           this.memory.refused ??= loaded.refused;
@@ -991,13 +991,57 @@ export class IpxApp {
       }
       const guard = this.guards.get(target.code);
       if (guard && !guard.inFlight && at > guard.sentAt) {
-        this.checkGuard(guard, target.value, resend);
+        this.checkGuard(guard, target.value, resend, at);
       }
     }
   }
 
-  /** A guard against a value read after its last send. */
-  checkGuard(guard, value, resend) {
+  /**
+   * A guard (new, or from /data: `seq` 0, never sent by this process). `stale`: a command of
+   * ours on its target still unanswered (one this guard cut, say): if the IPX handles it
+   * late, the reads showing it are no change on the IPX.
+   */
+  makeGuard(
+    {
+      code,
+      kind,
+      value,
+      resends = 0,
+      confirmed = false,
+      other,
+      seq = 0,
+      inFlight = false,
+      userInFlight = false,
+    },
+    mono,
+  ) {
+    return {
+      code,
+      kind,
+      value,
+      resends,
+      confirmed,
+      other,
+      seq,
+      sentAt: -Infinity,
+      inFlight,
+      userInFlight,
+      stale: this.mayLand(code, value, mono),
+    };
+  }
+
+  /**
+   * The last write of ours on `code` if it has another value than `value` and left less than
+   * a request time ago: until it is answered, it may still land after a guard of `value`.
+   */
+  mayLand(code, value, mono = this.monotonic()) {
+    const write = this.lastWrites.get(code);
+    if (!write || write.value === value) return undefined;
+    return mono - write.sentAt < TIMINGS.requestTimeout ? write : undefined;
+  }
+
+  /** A guard against a value read (by a read that left at `at`) after its last send. */
+  checkGuard(guard, value, resend, at) {
     if (guard.kind === KINDS.RELAY && !this.config.relays.has(guard.code)) {
       this.guards.delete(guard.code);
       return;
@@ -1013,10 +1057,25 @@ export class IpxApp {
       }
       return;
     }
+    // Answered since: the IPX handled it before answering, it cannot land any more.
+    const stale = guard.stale?.answered ? undefined : guard.stale;
     if (value === guard.value) {
       guard.confirmed = true;
       guard.other = undefined;
+      // Read after the time our older write could still land: out of the way for good.
+      if (!stale || at > stale.sentAt + TIMINGS.requestTimeout) guard.stale = undefined;
       return;
+    }
+    if (stale && value === stale.value) {
+      // Our own older write (cut by this command, or left without an answer) handled late by
+      // the IPX: the guard is contradicted, never "changed on the IPX"; as a guard not seen
+      // applied, it is sent again below.
+      guard.stale = undefined;
+      guard.confirmed = false;
+      guard.other = undefined;
+      this.logger.warn(
+        `ipx800: ${shownCode(guard.code)} shows an older command of the integration, not a change on the IPX: still held`,
+      );
     }
     if (guard.confirmed) {
       if (guard.other === value) {
@@ -1033,8 +1092,16 @@ export class IpxApp {
     }
   }
 
-  /** Sends a guard again (no ack): protective priority, counted when it leaves. */
-  resendGuard(guard, priority = PRIORITY.GUARD) {
+  /**
+   * Sends a guard again (no ack): protective priority, counted when it leaves. Cut by a
+   * click before its first byte, it goes again right behind that click (within `deadline`),
+   * not at the next read.
+   */
+  resendGuard(
+    guard,
+    priority = PRIORITY.GUARD,
+    deadline = this.monotonic() + TIMINGS.requestTimeout,
+  ) {
     const client = this.client;
     const target = this.targetOf(guard.code);
     if (guard.kind === KINDS.RELAY && !this.config.relays.has(guard.code)) {
@@ -1045,7 +1112,7 @@ export class IpxApp {
     }
     if (!client || !target || guard.inFlight) return;
     guard.inFlight = true;
-    const deadline = this.monotonic() + TIMINGS.requestTimeout;
+    let again = false;
     this.write(client, target, guard.value, priority, {
       deadline,
       beforeSend: () => {
@@ -1064,10 +1131,16 @@ export class IpxApp {
       },
     })
       .catch((err) => {
+        again = err instanceof IpxError && err.code === 'cut' && !err.sent;
         this.logger.warn(`ipx800: ${shownCode(guard.code)} sent again: ${errorReason(err)}`);
       })
       .finally(() => {
         guard.inFlight = false;
+        if (again && this.client === client && this.guards.get(guard.code) === guard) {
+          // Nothing left: behind the click that cut it (the same checks before its first byte).
+          this.resendGuard(guard, priority, deadline);
+          return;
+        }
         this.saveMemory().catch(() => {});
       });
     this.logger.info(`ipx800: ${shownCode(guard.code)} sent again`);
@@ -1208,16 +1281,42 @@ export class IpxApp {
     return this.model.get(code);
   }
 
-  /** One write through the lane; resolves when the IPX accepted it. */
+  /**
+   * One write through the lane; resolves when the IPX accepted it. What left is kept per
+   * target (`lastWrites`): until it is answered, it may land after a newer guard.
+   */
   write(client, target, value, priority, hooks) {
+    const record = { value, sentAt: undefined, answered: false };
+    const tracked = {
+      ...hooks,
+      onSent: () => {
+        record.sentAt = this.monotonic();
+        this.lastWrites.set(target.code, record);
+        hooks.onSent?.();
+      },
+    };
+    let written;
     if (this.config.version === 'v4') {
       const query = v4WriteQuery(target, value, V4_FP_CODE.get(value));
       if (!query) return Promise.reject(new IpxError('bad_request', 'invalid write'));
-      return client.v4Write(query, priority, hooks);
+      written = client.v4Write(query, priority, tracked);
+    } else {
+      const io = v5Write(target, value);
+      if (!io) return Promise.reject(new IpxError('bad_request', 'invalid write'));
+      written = client.v5Write(io.id, io.on, priority, tracked);
     }
-    const io = v5Write(target, value);
-    if (!io) return Promise.reject(new IpxError('bad_request', 'invalid write'));
-    return client.v5Write(io.id, io.on, priority, hooks);
+    written.then(
+      () => {
+        record.answered = true;
+      },
+      (err) => {
+        // An answer came (a refusal, a status): handled before it, it cannot land later.
+        record.answered = !(
+          err instanceof IpxError && ['cut', 'timeout', 'network'].includes(err.code)
+        );
+      },
+    );
+    return written;
   }
 
   /**
@@ -1559,18 +1658,14 @@ export class IpxApp {
       }
     }
     this.seq += 1;
-    const guard = {
+    const guard = this.makeGuard({
       code,
       kind: target.kind,
       value: wanted,
-      resends: 0,
-      confirmed: false,
-      other: undefined,
       seq: this.seq,
-      sentAt: -Infinity,
       inFlight: true,
       userInFlight: true,
-    };
+    });
     this.guards.set(code, guard);
     // Written to /data without waiting: a protective command never waits for the disk.
     this.saveMemory().catch(() => {});
@@ -1586,6 +1681,9 @@ export class IpxApp {
         await this.write(client, target, wanted, PRIORITY.PROTECTIVE, {
           deadline: received + TIMINGS.commandAnswerBy,
           beforeSend: () => {
+            // Right before the first byte, at every try: a newer click on this target (say
+            // during the wait between two tries) took its place; nothing leaves after it.
+            if (this.guards.get(code) !== guard) throw new IpxError('late', 'superseded');
             if (this.monotonic() >= sendBy) throw new IpxError('late', 'no time left to send');
           },
           onSent: () => {
@@ -1609,6 +1707,11 @@ export class IpxApp {
           break;
         }
         await new Promise((resolve) => this.timers.setTimeout(resolve, TIMINGS.protectiveRetryGap));
+        // A newer click during the wait: no new try at all, so that it cuts nothing (the read
+        // back of that click, say). One already queued is stopped by `beforeSend` above.
+        if (generation !== this.generation || this.guards.get(code) !== guard) {
+          break;
+        }
       }
     }
     guard.inFlight = false;

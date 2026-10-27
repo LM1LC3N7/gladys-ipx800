@@ -90,7 +90,8 @@ Gladys. Quand l’IPX800 ne le prend pas en 3,5 s (pas de connexion), il est
 gardé et renvoyé dès que l’IPX800 est libre, avant les relectures, par les
 lectures suivantes qui montrent un autre mode, et après un redémarrage. Un
 Arrêt cliqué pendant qu’un autre reste sans réponse depuis 1 s
-l’interrompt.
+l’interrompt. Un renvoi interrompu par un clic avant d’être parti repart
+juste derrière ce clic.
 
 Un Arrêt ou Hors-gel que les lectures ne montrent pas est renvoyé, 3 fois au
 plus ; puis l’état le dit (vérifiez sur place). Une zone V5 avec plusieurs
@@ -99,8 +100,11 @@ nouveau. Il reste tenu jusqu’à ce qu’une commande plus récente sur cette
 zone parte (votre clic), un autre Arrêt / Hors-gel, ou, une fois appliqué,
 un autre mode lu deux fois de suite (changé sur l’IPX800 lui-même, par ses
 scénarios ou sa page) : jamais par le temps. Ce qui a été demandé avant un
-Arrêt sur la même zone et pas encore envoyé est annulé : rien ne part après
-lui.
+Arrêt sur la même zone et pas encore envoyé est annulé, y compris un Hors-gel
+qui attend un nouvel essai : rien ne part après lui. Un mode envoyé par
+l’intégration avant l’Arrêt et resté sans réponse (coupé par l’Arrêt, par
+exemple), si l’IPX800 l’applique quand même dans les 5 s après son départ,
+n’est pas un changement sur l’IPX800 : l’Arrêt est renvoyé.
 
 ## Commandes
 

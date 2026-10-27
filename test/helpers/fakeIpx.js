@@ -1,8 +1,9 @@
 // -----------------------------------------------------------------------------
 // A fake IPX800 (V4 or V5) behind the transport of the client (no network),
 // on the virtual clock of the tests: each request takes `latency` ms of that
-// clock (a timer), can be cut (onStart), times out at its deadline, applies
-// a write when it is received, and records everything. It also counts the
+// clock (a timer), may take a while to connect (a cut then: nothing left),
+// can be cut (onStart), times out at its deadline, applies a write when it
+// is received, and records everything. It also counts the
 // requests in flight at once (`peak`): the lane must keep it at 1.
 //
 // V4: GET /api/xdevices.json?key=<key>&Get=all | SetR=NN | ClearR=NN | SetFPNN=c
@@ -69,6 +70,8 @@ export function fakeIpx({ version = 'v4', key = KEY } = {}) {
     ignoreWrites: false,
     /** Connections refused before anything leaves, for this many requests. */
     refuseConnect: 0,
+    /** ms (or a function of the request) to connect: a cut meanwhile means nothing left. */
+    connectDelay: 0,
     clock: undefined,
     // V4 state.
     R: Array(57).fill(0),
@@ -131,6 +134,9 @@ async function transport(world, options, { monotonic, deadline, beforeSend, onSe
   cutPromise.catch(() => {});
   onStart?.(() => cut());
   try {
+    const connect =
+      typeof world.connectDelay === 'function' ? world.connectDelay(record) : world.connectDelay;
+    if (connect > 0) await Promise.race([world.sleep(connect), cutPromise]);
     if (deadline !== undefined && monotonic() >= deadline) {
       throw new IpxError('late', 'no time left to send');
     }

@@ -173,3 +173,26 @@ to date at the end of every milestone.
   "several modes on" against a confirmed guard, and for the connection
   closed before the next one opens (10 ms between two requests; Node closes
   the socket after a "Connection: close" exchange, no extra `end()`).
+
+## Decisions after the review r3 (2026-10-27)
+
+- **B1**: a clicked protective command checks that its guard is still its
+  own right before each first byte (`beforeSend`, every try), and does not
+  try again at all when a newer click took its target during the 50 ms wait
+  (so it cuts nothing, the read back of that click included): an older Frost
+  protection never leaves after a newer Off.
+- **Own late writes**: every write that left is kept per target (memory
+  only) until answered. A new guard notes the last write of ours on its
+  target of another value, left less than 5 s before and not answered (in
+  flight, cut, timed out): a read showing that value is our own command
+  handled late, never "changed on the IPX": the guard is unconfirmed and
+  sent again (3 times at most). The note ends with an answer, its first use,
+  or a read showing the guard's value that left more than 5 s after that
+  write.
+- A guard resend cut by a click before its first byte goes again right
+  behind that click (within its 5 s), not at the next read; at start, the
+  Offs clicked before the configuration leave first, then the guards of
+  /data (none started only to be cut). Test for R5 (adopted clicks at click
+  priority: never cut by a later click).
+- `npm test` runs with `--test-timeout=60000` (a stuck test never holds a
+  runner).
