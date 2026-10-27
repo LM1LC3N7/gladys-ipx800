@@ -13,6 +13,12 @@ to date at the end of every milestone.
       `/data`; "Test the connection"; fr/en docs. Tested against an
       in-memory IPX (V4 and V5) on a virtual clock, and a real local HTTP
       server on a real clock (x20).
+- [x] **Review r4** (2026-10-27): APPROUVÉ, no blocker (4th round, rule of 5).
+- [ ] **Next patch — review r4 leftovers**: at 900 ms per request, 5 zones
+      clicked at once are all Off at 4.56 s but the last acks come back
+      without confirmation (one request at a time); say in the docs that a
+      local change to the value of our own unanswered command is first taken
+      for it, and the Off is sent once more (s18b).
 - [ ] **Milestone 2**: counters (lifetime counters: never 0 nor a drop
       published, an exit and a status signal on a reset), X-4VR shutters,
       X-Dimmer, X-PWM, virtual inputs / outputs; a real IPX800 V4 and V5.
