@@ -41,6 +41,9 @@ export const PILOT = {
 /** Protective modes: never refused by an option, a pause, a queue or a read in progress. */
 export const PROTECTIVE_MODES = [PILOT.OFF, PILOT.FROST_PROTECTION];
 
+/** A V5 zone with several mode IOs on: its mode cannot be read (never published). */
+export const MULTI = -1;
+
 /** V4: the text a zone reads -> the Gladys mode; the Gladys mode -> the `SetFPxx` code. */
 export const V4_FP_TEXT = new Map([
   ['Confort', PILOT.COMFORT],
@@ -105,7 +108,8 @@ export const ACTIONS = {
 export const POLL_INTERVAL = { min: 5, max: 300, default: 10 };
 
 /** Sizes of the V4 controller (the API answers them all, wired or not). */
-export const V4_LIMITS = { relays: 56, inputs: 56, zones: 16, thl: 4 };
+/** X-THL: the GCE wiki numbers their measurements up to 42 (3 each): 14 sensors (to check). */
+export const V4_LIMITS = { relays: 56, inputs: 56, zones: 16, thl: 14 };
 /** V5: the IPX's own relays and inputs; outputs per extension. */
 export const V5_LIMITS = { relays: 8, inputs: 8, extensions: 16, zones: 4, x8: 8, x24: 24 };
 
@@ -163,12 +167,17 @@ export const TIMINGS = {
   /** A protective command not sent at once is tried again during this budget. */
   protectiveRetry: 250,
   protectiveRetryGap: 50,
+  /** Between two requests to the IPX (after the previous connection is closed). */
+  laneGap: 10,
   /** A request cut by a protective command is closed within this (socket destroyed). */
   cutWait: 500,
   /** Reads after a command: its effect, then a check. */
   followUps: [5 * SECOND, 20 * SECOND],
   /** A protective command contradicted by the reads is sent again this many times at most. */
   resendMax: 3,
-  /** The configuration of Gladys not read: new tries 5 s, 15 s, 1 min, then every 5 min. */
-  configRetry: [5 * SECOND, 15 * SECOND, MINUTE, 5 * MINUTE],
+  /** The configuration of Gladys not read: new tries 5 s, 15 s, then every minute. */
+  configRetry: [5 * SECOND, 15 * SECOND, MINUTE],
+  /** A click while the configuration is unread asks for it at once (2 s apart at most) and waits this long. */
+  configAskGap: 2 * SECOND,
+  configWait: 3 * SECOND,
 };

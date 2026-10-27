@@ -55,38 +55,48 @@ depuis Gladys, listez-le dans « Relais pilotables par Gladys », par ex.
 interrupteur). Un interrupteur ou une lumière obéit à tout « éteins tout » de
 Google, Alexa, du MCP et des scènes : n’y mettez jamais une pompe, un
 congélateur, une VMC, un chauffage, une gâche ni une vanne. Un relais retiré
-de la liste repasse aussitôt en lecture seule (son ancienne fonctionnalité
-reste dans Gladys, mais ses commandes sont refusées : supprimez-la si vous
-voulez).
+de la liste repasse aussitôt en lecture seule : ses commandes sont refusées,
+et une extinction que l’intégration tenait encore pour lui est abandonnée (en
+mémoire et dans `/data`, au redémarrage aussi). Son ancienne fonctionnalité
+reste dans Gladys : supprimez-la si vous voulez.
 
 ## Fil pilote
 
-- **Arrêt** et **Hors-gel** partent tout de suite, sans l’option, même
-  pendant une pause après des lectures en échec, avec la file de commandes
-  pleine, pendant une lecture (elle est interrompue), et avant la première
+- **Arrêt** et **Hors-gel** n’ont besoin d’aucune option et passent avant
+  tout le reste : pendant une pause après des lectures en échec, avec une clé
+  d’API refusée, avec la file de commandes pleine, et avant la première
   lecture après un redémarrage (les identifiants V5 sont gardés dans
-  `/data`). De même pour l’extinction d’un relais que vous avez listé.
+  `/data`). Cliqués, ils interrompent toute requête en cours (une lecture,
+  une relecture, une commande, un renvoi), sauf un autre Arrêt ou Hors-gel
+  cliqué juste avant. De même pour l’extinction d’un relais que vous avez
+  listé.
 - **Éco, Confort, Confort -1, Confort -2** pilotent le chauffage : ils sont
   désactivés par défaut. Cochez « Autoriser Éco et Confort depuis Gladys »
   pour les permettre ; tout utilisateur de Gladys, toute scène et
   l’application Gladys peuvent alors les choisir. Ils sont refusés tant que
   l’état ne peut pas être écrit dans `/data`.
 
-Un Arrêt ou un Hors-gel n’est refusé que si : la configuration n’est pas
-encore lue dans Gladys ; l’adresse ou la clé d’API manque ; la zone n’est pas
-connue (V4 : absente des extensions ; V5 : jamais lue, même avant un
-redémarrage) ; la valeur n’est pas l’un des six modes. L’extinction d’un
-relais est refusée si le relais n’est pas listé. Quand l’IPX800 ne le prend
-pas en 250 ms, il est gardé et renvoyé par les lectures suivantes qui
-montrent un autre mode, et après un redémarrage.
+Un Arrêt ou un Hors-gel n’est refusé que si : l’adresse ou la clé d’API
+manque ; la zone n’est pas connue (V4 : absente des extensions ; V5 : jamais
+lue, même avant un redémarrage) ; la valeur n’est pas l’un des six modes.
+L’extinction d’un relais est refusée si le relais n’est pas listé. Cliqué
+avant que la configuration soit lue dans Gladys (la clé d’API n’est gardée
+que là, jamais dans `/data`), il la demande aussitôt à Gladys et attend 3 s ;
+si elle n’est pas venue, il est gardé en mémoire et envoyé dès sa lecture
+(relue 5 s après, puis toutes les minutes au plus). Quand l’IPX800 ne le
+prend pas en 3,5 s (un autre Arrêt en cours d’écriture, pas de connexion), il
+est gardé et renvoyé dès que l’IPX800 est libre, par les lectures suivantes
+qui montrent un autre mode, et après un redémarrage.
 
 Un Arrêt ou Hors-gel que les lectures ne montrent pas est renvoyé, 3 fois au
-plus ; puis l’état le dit (vérifiez sur place). Il reste tenu jusqu’à ce
-qu’une commande plus récente sur cette zone parte (votre clic), un autre
-Arrêt / Hors-gel, ou, une fois appliqué, un autre mode lu deux fois de suite
-(changé sur l’IPX800 lui-même, par ses scénarios ou sa page) : jamais par le
-temps. Ce qui a été demandé avant un Arrêt sur la même zone et attend encore
-est annulé : rien ne part après lui.
+plus ; puis l’état le dit (vérifiez sur place). Une zone V5 avec plusieurs
+modes actifs est signalée comme telle dans l’état et reçoit l’Arrêt à
+nouveau. Il reste tenu jusqu’à ce qu’une commande plus récente sur cette
+zone parte (votre clic), un autre Arrêt / Hors-gel, ou, une fois appliqué,
+un autre mode lu deux fois de suite (changé sur l’IPX800 lui-même, par ses
+scénarios ou sa page) : jamais par le temps. Ce qui a été demandé avant un
+Arrêt sur la même zone et pas encore envoyé est annulé : rien ne part après
+lui.
 
 ## Commandes
 

@@ -31,6 +31,8 @@ test('normalizeMemory: bounded, dates brought to now, guards checked, another ke
         { code: 'fp1', kind: 'pilot-wire', value: 1 },
         { code: '__proto__', kind: 'relay', value: 0 },
         { code: 'r1', kind: 'relay', value: 9 },
+        { code: 'r2', kind: 'relay', value: 1 },
+        { code: 'fp2', kind: 'pilot-wire', value: 5 },
       ],
       layout: { r1: { kind: 'relay', state: 110, command: 100 } },
     },

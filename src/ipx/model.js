@@ -14,6 +14,7 @@
 import {
   KINDS,
   LIMITS,
+  MULTI,
   PILOT,
   RANGES,
   V4_FP_TEXT,
@@ -282,13 +283,13 @@ export function v5Value(target, values) {
     return on === undefined ? undefined : on ? 1 : 0;
   }
   if (target.kind === KINDS.PILOT) {
-    // Exactly one mode on: that mode; none or several: unknown.
+    // Exactly one mode on: that mode; none: unknown; several: MULTI (unreadable, never published).
     let found;
     for (const [mode, id] of Object.entries(target.io)) {
       const on = values.io.get(id);
       if (on === undefined) return undefined;
       if (on) {
-        if (found !== undefined) return undefined;
+        if (found !== undefined) return MULTI;
         found = Number(mode);
       }
     }

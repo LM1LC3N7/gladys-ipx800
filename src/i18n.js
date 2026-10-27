@@ -202,6 +202,11 @@ export const T = {
       `Last command not applied (read back differs): ${list.en}.`,
       `Dernière commande non appliquée (la relecture diffère) : ${list.fr}.`,
     ),
+  multiModes: (list) =>
+    both(
+      `Mode unreadable (several modes on): ${list.en}.`,
+      `Mode illisible (plusieurs modes actifs) : ${list.fr}.`,
+    ),
   storeProblem: both(
     'The state cannot be written to /data: heating modes refused until it can.',
     'L’état ne peut pas être écrit dans /data : modes de chauffe refusés tant que c’est le cas.',
@@ -310,9 +315,13 @@ export const ERRORS = {
     'The state could not be written to /data: nothing was sent.',
     'L’état n’a pas pu être écrit dans /data : rien n’a été envoyé.',
   ),
+  keptUntilConfig: both(
+    'Not sent yet: the configuration is being read from Gladys; kept and sent as soon as it is read.',
+    'Pas encore envoyée : la configuration est en cours de lecture dans Gladys ; gardée et envoyée dès sa lecture.',
+  ),
   protectiveKept: (reason) =>
     both(
-      `Not sent yet (${reason.en}): kept and sent again at the next reads of the IPX800.`,
-      `Pas encore envoyée (${reason.fr}) : gardée et renvoyée aux prochaines lectures de l’IPX800.`,
+      `Not sent yet (${reason.en}): kept and sent again as soon as the IPX800 is free.`,
+      `Pas encore envoyée (${reason.fr}) : gardée et renvoyée dès que l’IPX800 est libre.`,
     ),
 };

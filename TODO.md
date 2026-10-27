@@ -34,6 +34,14 @@ to date at the end of every milestone.
   (they change only when an extension is removed and added again).
 - How the IPX800 V4 copes with requests one after the other at 10 s (the
   default interval) and with a request cut (connection reset).
+- V5 X-4FP: that a mode IO switched on turns the other modes of the zone off
+  (pypx800v5 and Home Assistant only write the IO of the mode too). If not,
+  the zone reads "several modes on" (shown in the status, the Off sent
+  again): then write the other IOs off.
+- V5: the ids kept in /data are used before the first read after a restart;
+  an extension removed and added again may give its ids to other IOs.
+- V4: the number of X-THL (14 taken here, from the numbering of their
+  measurements up to 42 in the GCE wiki).
 
 ## Decisions
 
@@ -104,3 +112,44 @@ to date at the end of every milestone.
   (V5 extensions by their IPX id). Frozen.
 - **Units**: °C, %, lux only (core list).
 - **Not in the manifest**: `keywords` and `countries` (need Gladys 5.3.0).
+
+## Decisions after the review r1 (2026-10-27)
+
+- **B1**: a protective command clicked cuts any request in flight but
+  another clicked one: the lane has 5 priorities (clicked protective,
+  guards and protective read backs, commands, read backs, polling). An Off
+  not sent within 3.5 s is sent again as soon as the lane is free (and by the
+  contradicting reads). The lane starts the next job a turn after one ends,
+  so the read back of a protective command goes before the commands
+  waiting. A request not started by its deadline leaves the queue.
+- **B2**: a command puts the guard of its target back only where no newer
+  one took its place (both branches).
+- **B3**: the guards of a relay not listed are dropped (memory and /data) at
+  start, at a new configuration, at a read and before a resend; a resend
+  checks the list again right before its first byte.
+- **I1**: a command before the configuration is read asks for it at once
+  (2 s after the last read at most) and waits 3 s; a protective one is then
+  kept in memory (never /data) and sent by the start that reads it; reads of
+  the configuration again after 5 s, 15 s, then every minute (5 s while one
+  is kept).
+- **I2**: `connected` and `configUpdated` go through one chain, one at a
+  time; a configuration superseded by a newer one waiting is skipped (a
+  reconnection still resends the status and the Discovery list); the start
+  checks its generation after each wait; commands wait (3 s at most) for the
+  start in progress.
+- **I3**: the read back of a command waits for the writes queued after it
+  until 3.5 s after its click at most; the read back shared only when it left
+  after the command's write left.
+- Minors: a V5 zone with several modes on is `MULTI` (never published,
+  status, Off sent again); a V4 answer `"status": "Error"` keeps the guard;
+  /data guards only 0 for a relay, 0 or 1 for a zone; the retries of a
+  clicked protective command stop when a newer command took its target;
+  manifest texts without "always"; X-THL up to 14 on the V4.
+- Known limit (one request at a time): a scene of 5 Off on an IPX taking
+  900 ms a request writes 4 within the 3.5 s; the 5th is kept and leaves as
+  soon as the lane is free (about 1 s later); their read backs come after
+  the ack ("sent, without confirmation"). At 500-700 ms a request, all 5 are
+  confirmed within the ack.
+- s10 of the review: the lane waits 10 ms after a socket closed before the
+  next connection (the HTTP request settles on the close of its socket, not
+  of the request).

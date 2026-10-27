@@ -54,35 +54,44 @@ Every relay is **read only** by default. To drive one from Gladys, list it in
 light, otherwise a switch). A switch or a light obeys every "turn everything
 off" of Google, Alexa, the MCP and the scenes: never list a pump, a freezer,
 a ventilation, a heating, a door strike nor a valve. A relay you remove from
-the list is read only again at once (its old feature in Gladys stays, but
-its commands are refused: delete it if you want).
+the list is read only again at once: its commands are refused, and a
+switch-off the integration was still holding for it is dropped (in memory
+and in `/data`, also at a restart). Its old feature in Gladys stays: delete
+it if you want.
 
 ## Pilot wire
 
-- **Off** and **Frost protection** are sent at once, without the option,
-  even during a pause after failed reads, with the queue of commands full,
-  while a read is in progress (it is interrupted), and before the first read
-  after a restart (the V5 ids are kept in `/data`). The same goes for
-  switching off a relay you listed.
+- **Off** and **Frost protection** need no option and go before everything
+  else: during a pause after failed reads, with a refused API key, with the
+  queue of commands full, and before the first read after a restart (the V5
+  ids are kept in `/data`). Clicked, they interrupt any request in progress
+  (a read, a read back, a command, a resend), except another Off or Frost
+  protection clicked just before. The same goes for switching off a relay
+  you listed.
 - **Eco, Comfort, Comfort -1, Comfort -2** drive the heating: they are off by
   default. Tick "Allow Eco and Comfort from Gladys" to allow them; every
   Gladys user, every scene and the Gladys app can then choose them. They are
   refused while the state cannot be written to `/data`.
 
-An Off or Frost protection is refused only when: the configuration is not
-read from Gladys yet; the address or the API key is missing; the zone is not
-known (V4: not listed in the extensions; V5: never read, even before a
-restart); the value is not one of the six modes. Off for a relay is refused
-when the relay is not listed. When the IPX800 does not take it within
-250 ms, it is kept and sent again by the next reads that show another mode,
-and after a restart.
+An Off or Frost protection is refused only when: the address or the API key
+is missing; the zone is not known (V4: not listed in the extensions; V5:
+never read, even before a restart); the value is not one of the six modes.
+Off for a relay is refused when the relay is not listed. Clicked before the
+configuration is read from Gladys (the API key is kept there only, never in
+`/data`), it asks Gladys for it at once and waits 3 s; if it has not come,
+it is kept in memory and sent as soon as it is read (read again 5 s later,
+then every minute at most). When the IPX800 does not take it within 3.5 s
+(another Off being written, no connection), it is kept and sent again as
+soon as the IPX800 is free, by the next reads that show another mode, and
+after a restart.
 
 An Off or Frost protection that the reads do not show is sent again, 3 times
-at most; then the status says so (check on site). It stays held until a
-later command on that zone leaves (your click), another Off / Frost
-protection, or, once applied, another mode read twice in a row (changed on
-the IPX800 itself, by its scenarios or its page): never by the time.
-Anything asked before an Off on the same zone and still waiting is
+at most; then the status says so (check on site). A V5 zone with several
+modes on is shown as such in the status and gets the Off again. It stays
+held until a later command on that zone leaves (your click), another Off /
+Frost protection, or, once applied, another mode read twice in a row
+(changed on the IPX800 itself, by its scenarios or its page): never by the
+time. Anything asked before an Off on the same zone and not yet sent is
 cancelled: it never leaves after it.
 
 ## Commands

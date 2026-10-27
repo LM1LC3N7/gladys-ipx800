@@ -18,23 +18,28 @@
 // minute at least when the IPX asks to wait), the pause kept in /data. A
 // refused API key stops the reads until the key changes or the test button
 // succeeds. A configuration of Gladys that cannot be read is read again (5 s,
-// 15 s, 1 min, then every 5 min), at every connection to Gladys.
+// 15 s, then every minute), at every connection to Gladys, and at once (2 s
+// apart at most) when a command comes before it. The configurations apply
+// one at a time, in order, the last one winning (one client, one lane).
 //
 // Two clocks: `now` (wall clock) dates what /data keeps; `monotonic` paces
 // the reads, the pauses, the deadlines and the publication budget. The clock
 // is read once per decision (`dueAt(mono)` computes on the caller's instant).
 //
 // Commands (one lane of requests to the IPX, see src/ipx/client.js):
-//   - protective: pilot wire Off and Frost protection, a relay switched off.
-//     Never refused by the heating option, a pause, a refused key, the
-//     queue, a read or a command in progress, nor before the first read
-//     (the V5 ids are kept in /data). They cut the request in flight, cancel
-//     the commands of the same target still waiting, are tried again for
-//     250 ms, then kept in /data (a guard) and sent again by the reads that
-//     contradict them (3 times at most). A guard is lifted by a later
+//   - protective: pilot wire Off and Frost protection, a listed relay
+//     switched off. Never refused by the heating option, a pause, a refused
+//     key, the queue, a read, a read back or a command in progress, nor
+//     before the first read (the V5 ids are kept in /data). Clicked, they
+//     cut any request in flight but another clicked one, cancel the
+//     commands of the same target still waiting, are tried again for
+//     250 ms, then kept (a guard, in /data) and sent again as soon as the
+//     lane is free, and by the reads that contradict them (3 times at most).
+//     Clicked before the configuration is read, they ask for it at once and
+//     are kept in memory until it comes. A guard is lifted by a later
 //     command on the target that left (a click), by another protective
-//     command, or once confirmed, by another value read twice in a row
-//     (changed on the IPX itself); never by the time.
+//     command, by the relay leaving the list, or once confirmed, by another
+//     value read twice in a row (changed on the IPX itself); never by the time.
 //   - the others (a declared relay switched on, the heating modes Eco and
 //     Comfort behind `allow_heating_modes`): a bounded queue served one at a
 //     time; the option, the declaration and the deadline checked on arrival
@@ -54,6 +59,7 @@ import {
   FEATURES as F,
   KINDS,
   LIMITS,
+  MULTI,
   PROTECTIVE_MODES,
   TIMINGS,
   V4_FP_CODE,
@@ -154,6 +160,16 @@ export class IpxApp {
     this.lastStatus = undefined;
     this.published = undefined;
     this.lastTestAt = -Infinity;
+    /** The configurations, applied one at a time (the last one queued wins). */
+    this.lifecycle = Promise.resolve();
+    this.configSeq = 0;
+    /** True once a start ended (client created, or nothing to start): commands wait for it. */
+    this.ready = false;
+    this.readyWaiters = new Set();
+    this.lastConfigAsk = -Infinity;
+    this.configLoading = undefined;
+    /** code -> { kind, value }: protective commands clicked before the configuration was read. */
+    this.pendingProtectives = new Map();
   }
 
   // --- Lifecycle -------------------------------------------------------------
@@ -170,8 +186,31 @@ export class IpxApp {
     await this.loadConfig();
   }
 
-  async loadConfig() {
+  loadConfig() {
+    if (!this.configLoading) {
+      this.configLoading = this.loadConfigNow().finally(() => {
+        this.configLoading = undefined;
+      });
+    }
+    return this.configLoading;
+  }
+
+  /** A command came before the configuration: read it now, or 2 s after the last read at most. */
+  askConfig() {
+    if (!this.configLoader || this.configLoading) {
+      return;
+    }
+    const wait = Math.max(0, this.lastConfigAsk + TIMINGS.configAskGap - this.monotonic());
+    this.clearConfigTimer();
+    this.configTimer = this.timers.setTimeout(() => {
+      this.configTimer = undefined;
+      return this.loadConfig().catch(() => {});
+    }, wait);
+  }
+
+  async loadConfigNow() {
     const generation = ++this.configGeneration;
+    this.lastConfigAsk = this.monotonic();
     let raw;
     try {
       raw = await this.configLoader();
@@ -179,7 +218,11 @@ export class IpxApp {
       if (generation !== this.configGeneration) {
         return;
       }
-      const wait = TIMINGS.configRetry[Math.min(this.configTries, TIMINGS.configRetry.length - 1)];
+      // A protective command waits for it: the shortest retry, whatever failed before.
+      const wait =
+        this.pendingProtectives.size > 0
+          ? TIMINGS.configRetry[0]
+          : TIMINGS.configRetry[Math.min(this.configTries, TIMINGS.configRetry.length - 1)];
       this.configTries += 1;
       this.logger.warn(
         `ipx800: configuration not read (${err?.name ?? 'Error'}); new try in ${Math.round(wait / 1000)} s`,
@@ -212,14 +255,50 @@ export class IpxApp {
    * memory only (the status, the Discovery list); the values follow at the
    * next read, never the old ones.
    */
-  async connected(raw = {}) {
+  connected(raw = {}) {
+    return this.enqueue(raw, true);
+  }
+
+  /** A configuration saved by the user. */
+  configUpdated(raw = {}) {
+    return this.enqueue(raw, false);
+  }
+
+  /**
+   * One configuration at a time, in order: a configuration superseded by a
+   * newer one still waiting is skipped (the last one wins); a reconnection
+   * still resends what Gladys keeps in memory only.
+   */
+  enqueue(raw, reconnection) {
+    const seq = ++this.configSeq;
+    const job = async () => {
+      if (seq === this.configSeq) {
+        if (reconnection) await this.connectedNow(raw);
+        else await this.configUpdatedNow(raw);
+      } else if (reconnection && this.started) {
+        await this.resendToGladys();
+      }
+    };
+    const run = this.lifecycle.then(job, job);
+    this.lifecycle = run.catch((err) =>
+      this.logger.error(`ipx800: configuration not applied (${err?.name ?? 'Error'})`),
+    );
+    return this.lifecycle;
+  }
+
+  async connectedNow(raw = {}) {
     if (!this.started || !this.configLoaded) {
       this.configLoaded = true;
       this.started = true;
       await this.start(raw);
       return;
     }
-    await this.configUpdated(raw);
+    await this.configUpdatedNow(raw);
+    await this.resendToGladys();
+  }
+
+  /** Gladys restarted: the status and the Discovery list again; the values at the next read. */
+  async resendToGladys() {
     this.published = undefined;
     this.gladys.forgetPublishedStates?.();
     const status = this.lastStatus;
@@ -240,11 +319,38 @@ export class IpxApp {
       this.failures += 1;
       this.setPause(this.monotonic(), TIMINGS.backoff[0], 'failed');
       this.schedule();
+    } finally {
+      this.setReady();
     }
   }
 
+  setReady() {
+    this.ready = true;
+    for (const resolve of this.readyWaiters) resolve(true);
+    this.readyWaiters.clear();
+  }
+
+  /** Resolves true once a start ended, false at `deadline` (monotonic). */
+  waitReady(deadline) {
+    if (this.ready) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      const done = (ok) => {
+        this.timers.clearTimeout(timer);
+        this.readyWaiters.delete(done);
+        resolve(ok);
+      };
+      const timer = this.timers.setTimeout(
+        () => done(false),
+        Math.max(0, deadline - this.monotonic()),
+      );
+      this.readyWaiters.add(done);
+    });
+  }
+
   async startNow(raw = {}) {
+    this.ready = false;
     this.stop();
+    const generation = this.generation;
     await this.running?.catch(() => {});
     this.config = normalizeConfig(raw);
     this.configLoaded = true;
@@ -260,6 +366,7 @@ export class IpxApp {
       this.storeUnreadable = true;
       this.logger.warn(`ipx800: /data unreadable (${err?.code ?? 'error'})`);
     }
+    if (generation !== this.generation) return;
     this.adoptMemory(normalizeMemory(loaded, now), now, mono);
     this.publisher.start();
     const missing = this.configMessage();
@@ -274,14 +381,19 @@ export class IpxApp {
       apiKey: this.config.apiKey,
       transport: this.transport,
       monotonic: this.monotonic,
+      timers: this.timers,
     });
+    // Clicked before the configuration was read: now a guard, sent below.
+    this.adoptPendingProtectives();
     await this.saveMemory();
+    if (generation !== this.generation) return;
     if (this.refusedApplies()) {
       await this.setStatus(false, T.refused);
     } else {
       await this.setStatus(false, this.pause ? this.pauseMessage(mono) : T.connecting);
     }
     await this.publishDevices();
+    if (generation !== this.generation) return;
     // The protective commands kept in /data and not seen applied leave now,
     // before the first read (after a restart or a new configuration).
     for (const guard of this.guards.values()) {
@@ -335,6 +447,46 @@ export class IpxApp {
     }
     for (const g of saved.guards) {
       this.guards.set(g.code, { ...g, seq: 0, sentAt: -Infinity, inFlight: false });
+    }
+    // A relay no longer listed is never driven again, not even by a guard kept in /data.
+    this.dropUnlistedGuards();
+  }
+
+  /** Drops the guards of the relays not listed now; true when one was dropped. */
+  dropUnlistedGuards() {
+    let dropped = false;
+    for (const [code, guard] of this.guards) {
+      if (guard.kind === KINDS.RELAY && !this.config.relays.has(code)) {
+        this.guards.delete(code);
+        dropped = true;
+        this.logger.info(`ipx800: ${shownCode(code)} no longer listed: not held any more`);
+      }
+    }
+    return dropped;
+  }
+
+  /** The protective commands clicked before the configuration was read become guards. */
+  adoptPendingProtectives() {
+    for (const [code, { kind, value, waiting }] of this.pendingProtectives) {
+      // A click still waiting sends it itself.
+      if (waiting) continue;
+      this.pendingProtectives.delete(code);
+      const target = this.model.get(code);
+      if (!target || target.kind !== kind) continue;
+      if (kind === KINDS.RELAY && !this.config.relays.has(code)) continue;
+      this.seq += 1;
+      this.guards.set(code, {
+        code,
+        kind,
+        value,
+        resends: 0,
+        confirmed: false,
+        other: undefined,
+        seq: this.seq,
+        sentAt: -Infinity,
+        inFlight: false,
+      });
+      this.logger.info(`ipx800: ${shownCode(code)} clicked before the configuration: sent now`);
     }
   }
 
@@ -393,7 +545,7 @@ export class IpxApp {
   }
 
   /** A new controller or key: start again; the rest applies at once. */
-  async configUpdated(raw = {}) {
+  async configUpdatedNow(raw = {}) {
     const next = normalizeConfig(raw);
     const previous = this.config;
     this.clearConfigTimer();
@@ -403,6 +555,9 @@ export class IpxApp {
       return this.start(raw);
     }
     this.config = next;
+    if (this.dropUnlistedGuards()) {
+      await this.saveMemory();
+    }
     if (next.allowHeatingModes !== previous.allowHeatingModes) {
       this.logger.info(`ipx800: heating modes ${next.allowHeatingModes ? 'allowed' : 'off'}`);
     }
@@ -754,6 +909,10 @@ export class IpxApp {
     if (this.warnings.size > 0) {
       parts.push(T.notApplied(listOf([...this.warnings.keys()].map(shownCode))));
     }
+    const multi = [...this.model.values()].filter((t) => t.value === MULTI);
+    if (multi.length > 0) {
+      parts.push(T.multiModes(listOf(multi.map((t) => shownCode(t.code)))));
+    }
     if (this.saveFailed || this.storeUnreadable) parts.push(T.storeProblem);
     return join(...parts);
   }
@@ -778,7 +937,7 @@ export class IpxApp {
       if (target.at !== at) continue;
       this.queueStates(target, created);
       const pending = this.pendingWrites.get(target.code);
-      if (pending && at > pending.at && target.value !== undefined) {
+      if (pending && at > pending.at && target.value !== undefined && target.value !== MULTI) {
         if (target.value === pending.expected) {
           this.warnings.delete(target.code);
         } else {
@@ -796,8 +955,19 @@ export class IpxApp {
 
   /** A guard against a value read after its last send. */
   checkGuard(guard, value, resend) {
+    if (guard.kind === KINDS.RELAY && !this.config.relays.has(guard.code)) {
+      this.guards.delete(guard.code);
+      return;
+    }
     if (value === undefined) {
       // Unknown is never "changed elsewhere".
+      return;
+    }
+    if (value === MULTI) {
+      // Several modes on (V5): not the one held, never "changed elsewhere"; sent again if not yet seen.
+      if (!guard.confirmed && resend && guard.resends < TIMINGS.resendMax) {
+        this.resendGuard(guard);
+      }
       return;
     }
     if (value === guard.value) {
@@ -824,14 +994,23 @@ export class IpxApp {
   resendGuard(guard) {
     const client = this.client;
     const target = this.targetOf(guard.code);
+    if (guard.kind === KINDS.RELAY && !this.config.relays.has(guard.code)) {
+      // No longer listed: never driven again.
+      this.guards.delete(guard.code);
+      this.saveMemory().catch(() => {});
+      return;
+    }
     if (!client || !target || guard.inFlight) return;
     guard.inFlight = true;
     const deadline = this.monotonic() + TIMINGS.requestTimeout;
-    this.write(client, target, guard.value, PRIORITY.PROTECTIVE, {
+    this.write(client, target, guard.value, PRIORITY.GUARD, {
       deadline,
       beforeSend: () => {
         // A newer command that left meanwhile (or another protective one): never sent over it.
-        if (this.guards.get(guard.code) !== guard) {
+        if (
+          this.guards.get(guard.code) !== guard ||
+          (guard.kind === KINDS.RELAY && !this.config.relays.has(guard.code))
+        ) {
           throw new IpxError('late', 'superseded');
         }
       },
@@ -1004,18 +1183,19 @@ export class IpxApp {
    */
   readBack(priority, deadline, { resend = false, after = Infinity } = {}) {
     const job = this.readBackJob;
-    // Shared when it leaves after the caller's write: not left yet, or asked after that write was answered.
+    // Shared when it leaves after the caller's write: not left yet (the write is answered), or
+    // left after the write left (one request at a time: then after its answer too).
     if (
       job &&
       job.priority <= priority &&
       job.client === this.client &&
-      (!job.started || job.createdAt >= after)
+      (!job.started || job.sentAt > after)
     ) {
       return job.promise;
     }
     const client = this.client;
     const generation = this.generation;
-    const next = { started: false, priority, client, createdAt: this.monotonic() };
+    const next = { started: false, priority, client, sentAt: undefined };
     next.promise = (async () => {
       let at;
       const hooks = {
@@ -1023,6 +1203,7 @@ export class IpxApp {
         onSent: () => {
           next.started = true;
           at = this.monotonic();
+          next.sentAt = at;
         },
       };
       const values = new Map();
@@ -1070,10 +1251,28 @@ export class IpxApp {
     if (!parsed || ![F.SWITCH, F.LIGHT, F.MODE].includes(parsed.key)) {
       throw this.refusal(parsed?.key === F.READONLY ? ERRORS.readOnly : ERRORS.notCommandable);
     }
-    if (!this.configLoaded) throw this.refusal(ERRORS.configNotLoaded);
-    if (!this.client) throw this.refusal(ERRORS.noConfig);
     const wanted = integerOf(value);
     const kind = parsed.kind;
+    if (!this.ready) {
+      // The configuration not read yet (or being applied): ask for it now and wait a little.
+      const protective =
+        isProtective(kind, wanted) && (kind !== KINDS.PILOT || V4_FP_CODE.has(wanted));
+      // Kept in memory only (the key never goes to /data): while this click waits, it is its
+      // own; past the wait, it is sent by the start that reads the configuration.
+      const pending = protective ? { kind, value: wanted, waiting: true } : undefined;
+      if (pending) this.pendingProtectives.set(parsed.code, pending);
+      if (!this.configLoaded) this.askConfig();
+      const ready = await this.waitReady(received + TIMINGS.configWait);
+      if (this.pendingProtectives.get(parsed.code) === pending) {
+        if (ready) this.pendingProtectives.delete(parsed.code);
+        else if (pending) pending.waiting = false;
+      }
+      if (!ready) {
+        if (pending) throw this.refusal(ERRORS.keptUntilConfig);
+        throw this.refusal(ERRORS.configNotLoaded);
+      }
+    }
+    if (!this.client) throw this.refusal(ERRORS.noConfig);
     if (kind === KINDS.RELAY) {
       if (wanted !== 0 && wanted !== 1) throw this.refusal(ERRORS.badValue);
       if (!this.config.relays.has(parsed.code)) throw this.refusal(ERRORS.readOnly);
@@ -1176,14 +1375,15 @@ export class IpxApp {
     if (job.kind === KINDS.PILOT) {
       if (guard) this.guards.delete(job.code);
       const saved = await this.saveMemory();
+      // Put back only where no newer guard took its place (an Off clicked meanwhile wins).
+      if (guard && !this.guards.has(job.code)) this.guards.set(job.code, guard);
       if (!saved) {
-        if (guard) this.guards.set(job.code, guard);
         throw this.refusal(ERRORS.saveFailed);
       }
       if (generation !== this.generation) throw this.refusal(ERRORS.unknownTarget);
-      if (guard) this.guards.set(job.code, guard);
     }
     let left = false;
+    let writtenAt;
     const restoreGuard = () => {
       if (guard && !this.guards.has(job.code)) this.guards.set(job.code, guard);
     };
@@ -1193,6 +1393,7 @@ export class IpxApp {
         beforeSend: () => this.checkBeforeSend(job, generation, client),
         onSent: () => {
           left = true;
+          writtenAt = this.monotonic();
           // A newer command that left: the guard of this target ends here.
           if (this.guards.get(job.code) === guard) this.guards.delete(job.code);
           this.pendingWrites.set(job.code, {
@@ -1202,7 +1403,11 @@ export class IpxApp {
         },
       });
     } catch (err) {
-      if (left && err instanceof IpxError && ['refused', 'busy', 'http'].includes(err.code)) {
+      if (
+        left &&
+        err instanceof IpxError &&
+        ['refused', 'busy', 'http', 'not_success'].includes(err.code)
+      ) {
         // Refused by the IPX: not a newer command, the guard stands.
         restoreGuard();
         this.pendingWrites.delete(job.code);
@@ -1213,13 +1418,9 @@ export class IpxApp {
     }
     this.saveMemory().catch(() => {});
     this.afterWrite(generation);
-    const confirmation = this.confirm(
-      job.code,
-      job.kind,
-      job.wanted,
-      job.received,
-      PRIORITY.CONFIRM,
-    );
+    const confirmation = this.confirm(job.code, job.kind, job.wanted, job.received, {
+      after: writtenAt,
+    });
     confirmation.catch(() => {});
     // Wrapped: an async function would otherwise wait for it.
     return { confirmation };
@@ -1245,23 +1446,38 @@ export class IpxApp {
    * The read back of a command that left: the value asked = done; the
    * value before = not applied yet; nothing in time = sent, unconfirmed.
    */
-  async confirm(code, kind, wanted, received, priority) {
-    // The write was answered now: a read asked from now on leaves after it.
-    const after = this.monotonic();
+  async confirm(code, kind, wanted, received, { protective = false, after }) {
+    const waitWrites = !protective;
     let read;
-    if (priority !== PRIORITY.PROTECTIVE) {
-      // The commands waiting are written first (a scene): one read back then serves them all.
-      await this.serving?.catch(() => {});
+    if (waitWrites && this.serving) {
+      // The commands waiting are written first (a scene): one read back then serves them all;
+      // never past the time to send, so that the ack stays within the 5 s of Gladys.
+      let timer;
+      await Promise.race([
+        this.serving.catch(() => {}),
+        new Promise((resolve) => {
+          timer = this.timers.setTimeout(
+            resolve,
+            Math.max(0, received + TIMINGS.commandSendBy - this.monotonic()),
+          );
+        }),
+      ]);
+      this.timers.clearTimeout(timer);
     }
     try {
-      read = await this.readBack(priority, received + TIMINGS.commandAnswerBy, { after });
+      // A protective read back goes before the other commands, but any later Off clicked cuts it.
+      read = await this.readBack(
+        protective ? PRIORITY.GUARD : PRIORITY.CONFIRM,
+        received + TIMINGS.commandAnswerBy,
+        { after },
+      );
     } catch {
       throw this.refusal(ERRORS.unconfirmed);
     }
     await this.refreshStatus();
     const value = read.values.get(code);
     if (value === wanted) return undefined;
-    if (value === undefined) throw this.refusal(ERRORS.unconfirmed);
+    if (value === undefined || value === MULTI) throw this.refusal(ERRORS.unconfirmed);
     throw this.refusal(ERRORS.notApplied(describe(kind, value), describe(kind, wanted)));
   }
 
@@ -1325,6 +1541,7 @@ export class IpxApp {
         await this.write(client, target, wanted, PRIORITY.PROTECTIVE, {
           deadline: received + TIMINGS.commandAnswerBy,
           beforeSend: () => {
+            if (this.guards.get(code) !== guard) throw new IpxError('late', 'superseded');
             if (this.monotonic() >= sendBy) throw new IpxError('late', 'no time left to send');
           },
           onSent: () => {
@@ -1341,6 +1558,7 @@ export class IpxApp {
           left ||
           !(err instanceof IpxError) ||
           generation !== this.generation ||
+          this.guards.get(code) !== guard ||
           mono - first >= TIMINGS.protectiveRetry ||
           mono >= sendBy
         ) {
@@ -1353,13 +1571,23 @@ export class IpxApp {
     guard.userInFlight = false;
     this.saveMemory().catch(() => {});
     if (!left) {
-      // Kept: the reads send it again when they show another value.
+      if (this.guards.get(code) !== guard) {
+        // A later command on this target took its place.
+        throw this.refusal(ERRORS.cancelledByStop);
+      }
+      // Kept: sent again as soon as the lane is free, and by the reads that show another value.
+      if (generation === this.generation) this.resendGuard(guard);
+      this.refreshStatus().catch(() => {});
       throw this.refusal(ERRORS.protectiveKept(reasonOf(lastError)));
     }
     this.afterWrite(generation);
     if (lastError) {
       throw this.commandError(lastError, true, 0);
     }
-    return this.confirm(code, target.kind, wanted, received, PRIORITY.PROTECTIVE);
+    // Its read back is cut by any later Off clicked; it never waits for the other commands.
+    return this.confirm(code, target.kind, wanted, received, {
+      protective: true,
+      after: guard.sentAt,
+    });
   }
 }

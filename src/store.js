@@ -82,13 +82,12 @@ const isCode = (value) => typeof value === 'string' && /^[a-z0-9-]{2,24}$/.test(
 
 /** A guard read back: `{ code, value, resends, confirmed, other }`; undefined when not valid. */
 function guardOf(raw) {
-  if (
-    !isCode(raw?.code) ||
-    !Number.isInteger(raw.value) ||
-    raw.value < 0 ||
-    raw.value > 5 ||
-    (raw.kind !== 'relay' && raw.kind !== 'pilot-wire')
-  ) {
+  // Only what a protective command writes: a relay off (0), a zone Off (0) or Frost protection (1).
+  const valid =
+    isCode(raw?.code) &&
+    ((raw.kind === 'relay' && raw.value === 0) ||
+      (raw.kind === 'pilot-wire' && (raw.value === 0 || raw.value === 1)));
+  if (!valid) {
     return undefined;
   }
   return {

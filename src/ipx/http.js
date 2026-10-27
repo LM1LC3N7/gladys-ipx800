@@ -115,7 +115,10 @@ export function request(
         deliver();
         return;
       }
-      closeTimer = setTimeout(deliver, TIMINGS.cutWait);
+      closeTimer = setTimeout(() => {
+        req?.destroy();
+        deliver();
+      }, TIMINGS.cutWait);
     };
     const wait = due - monotonic();
     if (wait <= 0) {
@@ -150,9 +153,13 @@ export function request(
             }
             chunks.push(chunk);
           });
-          res.on('end', () =>
-            settle(resolve, { status: res.statusCode, body: Buffer.concat(chunks) }),
-          );
+          // The answer is whole: our side of the socket is ended here, whatever the server does
+          // with "Connection: close"; the answer is delivered once the server closed too (or
+          // destroyed 500 ms later): the next request never opens beside it.
+          res.on('end', () => {
+            settle(resolve, { status: res.statusCode, body: Buffer.concat(chunks) });
+            res.socket?.end();
+          });
           res.on('error', (err) => settle(reject, networkError(err, true), true));
           res.on('aborted', () =>
             settle(reject, new IpxError('network', 'answer cut short', { sent: true }), true),
@@ -163,9 +170,13 @@ export function request(
       settle(reject, new IpxError('network', 'invalid address', { reason: err?.code }));
       return;
     }
+    let socketSeen = false;
+    // Without a socket (refused before one), the end of the request is the end.
     req.on('close', () => {
-      closed = true;
-      deliver();
+      if (!socketSeen) {
+        closed = true;
+        deliver();
+      }
     });
     onStart?.(() =>
       settle(reject, new IpxError('cut', 'cut by a protective command', { sent }), true),
@@ -181,6 +192,12 @@ export function request(
     }, wait);
     req.on('error', (err) => settle(reject, networkError(err, sent), true));
     req.on('socket', (socket) => {
+      socketSeen = true;
+      // Delivered once the socket itself is closed (the request's 'close' comes sooner).
+      socket.once('close', () => {
+        closed = true;
+        deliver();
+      });
       const send = () => {
         if (outcome) {
           return;

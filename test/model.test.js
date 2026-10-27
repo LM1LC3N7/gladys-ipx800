@@ -86,7 +86,7 @@ test('V5: layout, values, one mode per zone or unknown; a key "__proto__" pollut
     io.map((e) => (e._id === 300 ? { _id: 300, on: true } : e)),
     [],
   );
-  assert.equal(v5Value(zone, two), undefined, 'two modes on: unknown');
+  assert.equal(v5Value(zone, two), -1, 'two modes on: MULTI, never a mode');
   assert.deepEqual(v5Write(zone, PILOT.FROST_PROTECTION), { id: 308, on: true });
   assert.deepEqual(v5Write(targets.get('x8r12-2'), 0), { id: 201, on: false });
   assert.deepEqual(parseV5Values({ not: 'a list' }), { error: 'bad_response' });

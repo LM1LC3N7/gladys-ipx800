@@ -18,8 +18,8 @@
       "type": "section",
       "label": { "en": "Your IPX800", "fr": "Votre IPX800" },
       "description": {
-        "en": "Brings a GCE Electronics IPX800 V4 or V5 into Gladys through its local HTTP API and its API key: relays (read only unless you list them below), digital inputs, pilot-wire zones of the X-4FP and X-THL sensors. Pilot wire: Off and Frost protection are always sent; Eco and Comfort only once allowed below. Never tested with a real device. Not affiliated with GCE Electronics.",
-        "fr": "Amène dans Gladys un IPX800 V4 ou V5 de GCE Electronics par son API HTTP locale et sa clé d’API : relais (en lecture seule sauf ceux listés ci-dessous), entrées, zones de fil pilote des X-4FP et capteurs X-THL. Fil pilote : Arrêt et Hors-gel sont toujours envoyés ; Éco et Confort seulement une fois autorisés ci-dessous. Jamais testé avec un vrai appareil. Sans lien avec GCE Electronics."
+        "en": "Brings a GCE Electronics IPX800 V4 or V5 into Gladys through its local HTTP API and its API key: relays (read only unless you list them below), digital inputs, pilot-wire zones of the X-4FP and X-THL sensors. Pilot wire: Off and Frost protection go first, without any option (see the guide for their limits); Eco and Comfort only once allowed below. Never tested with a real device. Not affiliated with GCE Electronics.",
+        "fr": "Amène dans Gladys un IPX800 V4 ou V5 de GCE Electronics par son API HTTP locale et sa clé d’API : relais (en lecture seule sauf ceux listés ci-dessous), entrées, zones de fil pilote des X-4FP et capteurs X-THL. Fil pilote : Arrêt et Hors-gel passent en premier, sans option (limites dans le guide) ; Éco et Confort seulement une fois autorisés ci-dessous. Jamais testé avec un vrai appareil. Sans lien avec GCE Electronics."
       },
       "links": [
         {
@@ -104,8 +104,8 @@
       "type": "section",
       "label": { "en": "Pilot wire", "fr": "Fil pilote" },
       "description": {
-        "en": "Off and Frost protection are always sent, at once, even during a pause or before the first read. Eco, Comfort, Comfort -1 and Comfort -2 drive the heating: they are off by default. Once allowed, every Gladys user, every scene and the Gladys app can choose them.",
-        "fr": "Arrêt et Hors-gel sont toujours envoyés, tout de suite, même pendant une pause ou avant la première lecture. Éco, Confort, Confort -1 et Confort -2 pilotent le chauffage : ils sont désactivés par défaut. Une fois autorisés, tout utilisateur de Gladys, toute scène et l’application Gladys peuvent les choisir."
+        "en": "Off and Frost protection need no option and go before everything else, during a pause or before the first read; they are refused only when the IPX800 or the zone is not known yet (see the guide). Eco, Comfort, Comfort -1 and Comfort -2 drive the heating: they are off by default. Once allowed, every Gladys user, every scene and the Gladys app can choose them.",
+        "fr": "Arrêt et Hors-gel n’ont besoin d’aucune option et passent avant tout le reste, pendant une pause ou avant la première lecture ; ils ne sont refusés que si l’IPX800 ou la zone n’est pas encore connu (voir le guide). Éco, Confort, Confort -1 et Confort -2 pilotent le chauffage : ils sont désactivés par défaut. Une fois autorisés, tout utilisateur de Gladys, toute scène et l’application Gladys peuvent les choisir."
       }
     },
     {

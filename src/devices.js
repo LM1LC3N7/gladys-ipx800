@@ -189,7 +189,10 @@ export function targetStates(target, keys) {
     case KINDS.INPUT:
       return [[F.STATE, { state: value }]];
     case KINDS.PILOT:
-      return [[F.MODE, { state: value }]];
+      // A mode out of 0-5 (several modes on) is not one: never published.
+      return Number.isInteger(value) && value >= 0 && value <= 5
+        ? [[F.MODE, { state: value }]]
+        : [];
     default:
       return [
         [F.TEMPERATURE, value.temperature],

@@ -2,16 +2,19 @@
 // The client of one IPX800: the requests of both API versions, through ONE
 // lane: one request at a time (the IPX800 V4 is a small embedded server), in
 // the order of their priority:
-//   0  protective commands (pilot wire Off / Frost protection, relay off);
-//   1  the other commands;
-//   2  the read back of the commands (after the writes waiting: a scene on
-//      several targets writes them all, then reads once);
-//   3  the reads of the polling.
-// A protective command cuts the request in flight unless it is protective
-// too, any command cuts a read of the polling (a read cut does not count as
-// a failure; a command cut that may have left is "sent, without
-// confirmation"); the next request opens its
-// connection only once the previous one is closed (see http.js).
+//   0  protective commands clicked (pilot wire Off / Frost protection, relay off);
+//   1  protective commands sent again by the integration (guards), and the
+//      read back of a protective command;
+//   2  the other commands;
+//   3  the read backs of the other commands (after the
+//      writes waiting: a scene on several targets writes them all, then reads once);
+//   4  the reads of the polling.
+// A protective command clicked cuts the request in flight, whatever it is,
+// unless it is another protective command clicked (a read cut does not count
+// as a failure; a command cut that may have left is "sent, without
+// confirmation"); any other write cuts a read of the polling. A request not
+// started by its deadline leaves the queue ("nothing sent"). The next request
+// opens its connection only once the previous one is closed (see http.js).
 //
 // The API key goes in the query string, as both APIs want it: the paths are
 // built here and never leave this file but to the transport.
@@ -20,19 +23,20 @@
 import { API, LIMITS, TIMINGS } from '../constants.js';
 import { IpxError, request } from './http.js';
 
-export const PRIORITY = { PROTECTIVE: 0, COMMAND: 1, CONFIRM: 2, READ: 3 };
+export const PRIORITY = { PROTECTIVE: 0, GUARD: 1, COMMAND: 2, CONFIRM: 3, READ: 4 };
 
 const ID = /^\d{1,10}$/;
 const EBX = /^[a-z0-9]{1,8}$/;
 
 export class IpxClient {
-  constructor({ version, host, port, apiKey, transport = request, monotonic }) {
+  constructor({ version, host, port, apiKey, transport = request, monotonic, timers }) {
     this.version = version;
     this.host = host;
     this.port = port;
     this.apiKey = apiKey;
     this.transport = transport;
     this.monotonic = monotonic ?? (() => performance.now());
+    this.timers = timers ?? globalThis;
     /** Jobs waiting: { priority, run, resolve, reject }. */
     this.queue = [];
     /** The job running: { priority, cut }. */
@@ -44,6 +48,7 @@ export class IpxClient {
   close() {
     this.closed = true;
     for (const job of this.queue.splice(0)) {
+      this.timers.clearTimeout(job.timer);
       job.reject(new IpxError('late', 'the connection to the IPX was closed'));
     }
     this.current?.cut?.();
@@ -68,12 +73,25 @@ export class IpxClient {
       const at = this.queue.findIndex((j) => j.priority > priority);
       if (at === -1) this.queue.push(job);
       else this.queue.splice(at, 0, job);
-      // A protective command cuts whatever is not protective; any command cuts a read of the
-      // polling (idempotent, read again at the next round): a command never waits behind one.
+      if (hooks.deadline !== undefined) {
+        // Not started by its deadline: out of the queue, nothing sent.
+        job.timer = this.timers.setTimeout(
+          () => {
+            const index = this.queue.indexOf(job);
+            if (index !== -1) {
+              this.queue.splice(index, 1);
+              reject(new IpxError('late', 'no time left to send'));
+            }
+          },
+          Math.max(0, hooks.deadline - this.monotonic()),
+        );
+      }
+      // A protective command clicked cuts whatever is not one; any other write cuts a read of
+      // the polling (idempotent, read again at the next round): a write never waits behind one.
       if (
         this.current &&
         ((priority === PRIORITY.PROTECTIVE && this.current.priority > priority) ||
-          (priority === PRIORITY.COMMAND && this.current.priority === PRIORITY.READ))
+          (priority <= PRIORITY.COMMAND && this.current.priority === PRIORITY.READ))
       ) {
         this.current.cut?.();
       }
@@ -82,10 +100,11 @@ export class IpxClient {
   }
 
   pump() {
-    if (this.current || this.queue.length === 0) {
+    if (this.current || this.cooling || this.queue.length === 0) {
       return;
     }
     const job = this.queue.shift();
+    this.timers.clearTimeout(job.timer);
     const running = { priority: job.priority, cutAsked: false };
     // Until the transport hands its own cut, a cut asked is remembered.
     running.cut = () => {
@@ -110,7 +129,14 @@ export class IpxClient {
       .then(job.resolve, job.reject)
       .finally(() => {
         this.current = undefined;
-        this.pump();
+        // The next job a little later: the caller of this one may queue its own follow-up
+        // first (the read back of a protective command goes before the commands waiting),
+        // and the IPX has seen the previous connection closed before the next one opens.
+        this.cooling = true;
+        this.timers.setTimeout(() => {
+          this.cooling = false;
+          this.pump();
+        }, TIMINGS.laneGap);
       });
   }
 
