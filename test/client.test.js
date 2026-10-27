@@ -146,3 +146,52 @@ test('a protective request cuts a slow read, after its connection is closed; one
   assert.equal(peak, 1, 'never two requests open at once');
   assert.equal(srv.requests.length, 2);
 });
+
+test('a server keeping the connection open: one connection at a time, the next opened after', async (t) => {
+  const { tcpServer } = await import('./kit/index.mjs');
+  const text = JSON.stringify({ status: 'Success', R1: 0 });
+  const dev = await tcpServer({
+    onData: (c) =>
+      c.toString('latin1').startsWith('GET')
+        ? `HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: ${text.length}\r\n\r\n${text}`
+        : undefined,
+  });
+  t.after(() => dev.close());
+  const c = client(dev.port);
+  await c.v4ReadAll();
+  await c.v4ReadAll();
+  await Promise.all([
+    c.v4Write('ClearR=01', PRIORITY.PROTECTIVE).catch(() => {}),
+    c.v4Write('ClearR=02', PRIORITY.PROTECTIVE).catch(() => {}),
+    c.v4ReadAll().catch(() => {}),
+  ]);
+  assert.equal(dev.connections, 5);
+  assert.equal(dev.peak, 1, 'never two connections open at once');
+});
+
+test('the lane waits a little after a request before opening the next connection', async () => {
+  const { testClock } = await import('./kit/index.mjs');
+  const { TIMINGS } = await import('../src/constants.js');
+  const clock = testClock();
+  const started = [];
+  const c = new IpxClient({
+    version: 'v4',
+    host: '127.0.0.1',
+    port: 1,
+    apiKey: KEY,
+    monotonic: clock.monotonic,
+    timers: clock.timers,
+    transport: async () => {
+      started.push(clock.elapsed);
+      return { status: 200, body: Buffer.from('{"status":"Success"}') };
+    },
+  });
+  const both = Promise.all([c.v4ReadAll(), c.v4ReadAll()]);
+  await clock.advance(1);
+  await clock.advance(TIMINGS.laneGap / 2);
+  assert.equal(started.length, 1, 'the second waits');
+  await clock.advance(TIMINGS.laneGap);
+  await both;
+  assert.equal(started.length, 2);
+  assert.ok(started[1] - started[0] >= TIMINGS.laneGap);
+});

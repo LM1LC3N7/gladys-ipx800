@@ -202,6 +202,11 @@ export const T = {
       `Last command not applied (read back differs): ${list.en}.`,
       `Dernière commande non appliquée (la relecture diffère) : ${list.fr}.`,
     ),
+  pendingDropped: (list) =>
+    both(
+      `Off clicked before the configuration was read, not sent (relay not listed or output unknown): ${list.en}.`,
+      `Arrêt cliqué avant la lecture de la configuration, non envoyé (relais non listé ou sortie inconnue) : ${list.fr}.`,
+    ),
   multiModes: (list) =>
     both(
       `Mode unreadable (several modes on): ${list.en}.`,

@@ -170,6 +170,9 @@ export class IpxApp {
     this.configLoading = undefined;
     /** code -> { kind, value }: protective commands clicked before the configuration was read. */
     this.pendingProtectives = new Map();
+    /** Codes of protective commands kept for the configuration, then unknown or not listed. */
+    this.droppedPending = new Set();
+    this.memoryLoaded = false;
   }
 
   // --- Lifecycle -------------------------------------------------------------
@@ -227,12 +230,13 @@ export class IpxApp {
       this.logger.warn(
         `ipx800: configuration not read (${err?.name ?? 'Error'}); new try in ${Math.round(wait / 1000)} s`,
       );
-      await this.setStatus(false, T.configNotRead(age(wait)));
       this.clearConfigTimer();
       this.configTimer = this.timers.setTimeout(() => {
         this.configTimer = undefined;
         return this.loadConfig().catch(() => {});
       }, wait);
+      // Not awaited: a slow Gladys never delays the next read of the configuration.
+      this.setStatus(false, T.configNotRead(age(wait))).catch(() => {});
       return;
     }
     if (generation !== this.configGeneration) {
@@ -349,6 +353,8 @@ export class IpxApp {
 
   async startNow(raw = {}) {
     this.ready = false;
+    // Nothing goes to /data until this start has read it back.
+    this.memoryLoaded = false;
     this.stop();
     const generation = this.generation;
     await this.running?.catch(() => {});
@@ -368,6 +374,7 @@ export class IpxApp {
     }
     if (generation !== this.generation) return;
     this.adoptMemory(normalizeMemory(loaded, now), now, mono);
+    this.memoryLoaded = true;
     this.publisher.start();
     const missing = this.configMessage();
     if (missing) {
@@ -383,8 +390,19 @@ export class IpxApp {
       monotonic: this.monotonic,
       timers: this.timers,
     });
-    // Clicked before the configuration was read: now a guard, sent below.
-    this.adoptPendingProtectives();
+    // The key is known: before any call to Gladys, the protective commands leave. Those
+    // clicked before the configuration was read, then those kept in /data and not seen
+    // applied (after a restart or a new configuration), before the first read.
+    const clicked = new Set(this.adoptPendingProtectives());
+    for (const guard of this.guards.values()) {
+      if (clicked.has(guard)) {
+        this.resendGuard(guard, PRIORITY.PROTECTIVE);
+      } else if (!guard.confirmed && guard.resends < TIMINGS.resendMax) {
+        this.resendGuard(guard);
+      }
+    }
+    // Commands (a click waiting) may go from now on.
+    this.setReady();
     await this.saveMemory();
     if (generation !== this.generation) return;
     if (this.refusedApplies()) {
@@ -394,13 +412,6 @@ export class IpxApp {
     }
     await this.publishDevices();
     if (generation !== this.generation) return;
-    // The protective commands kept in /data and not seen applied leave now,
-    // before the first read (after a restart or a new configuration).
-    for (const guard of this.guards.values()) {
-      if (!guard.confirmed && guard.resends < TIMINGS.resendMax) {
-        this.resendGuard(guard);
-      }
-    }
     this.schedule();
     // The first round now when it is due; not awaited (a slow IPX never holds the start).
     this.tick();
@@ -467,15 +478,23 @@ export class IpxApp {
 
   /** The protective commands clicked before the configuration was read become guards. */
   adoptPendingProtectives() {
+    const adopted = [];
     for (const [code, { kind, value, waiting }] of this.pendingProtectives) {
       // A click still waiting sends it itself.
       if (waiting) continue;
       this.pendingProtectives.delete(code);
       const target = this.model.get(code);
-      if (!target || target.kind !== kind) continue;
-      if (kind === KINDS.RELAY && !this.config.relays.has(code)) continue;
+      const unlisted = kind === KINDS.RELAY && !this.config.relays.has(code);
+      if (!target || target.kind !== kind || unlisted) {
+        // Told, never dropped silently: the ack said it would be sent.
+        this.droppedPending.add(code);
+        this.logger.warn(
+          `ipx800: ${shownCode(code)} clicked before the configuration: not sent (${unlisted ? 'relay not listed' : 'unknown on this IPX800'})`,
+        );
+        continue;
+      }
       this.seq += 1;
-      this.guards.set(code, {
+      const guard = {
         code,
         kind,
         value,
@@ -485,9 +504,12 @@ export class IpxApp {
         seq: this.seq,
         sentAt: -Infinity,
         inFlight: false,
-      });
+      };
+      this.guards.set(code, guard);
+      adopted.push(guard);
       this.logger.info(`ipx800: ${shownCode(code)} clicked before the configuration: sent now`);
     }
+    return adopted;
   }
 
   stop() {
@@ -523,6 +545,7 @@ export class IpxApp {
   }
 
   reset() {
+    this.droppedPending.clear();
     this.model.clear();
     this.round = undefined;
     this.pause = undefined;
@@ -619,6 +642,10 @@ export class IpxApp {
 
   /** true when /data was written. A failure is logged once until a save succeeds again. */
   async saveMemory() {
+    if (!this.memoryLoaded) {
+      // Between the reset of a start and its read of /data: never written over.
+      return false;
+    }
     if (this.storeUnreadable) {
       // Read again first: what it holds is never overwritten unseen.
       try {
@@ -752,8 +779,9 @@ export class IpxApp {
       result = await this.readRound(client, mono);
     } catch (err) {
       if (gone()) return;
-      if (err instanceof IpxError && err.code === 'cut') {
-        // Cut by a protective command: not a failure; the next round at its time.
+      if (err instanceof IpxError && (err.code === 'cut' || (err.code === 'late' && !err.sent))) {
+        // Cut by a protective command, or never sent (left the queue behind commands at its
+        // deadline): not a failure of the IPX; the next round at its time.
         this.schedule();
         return;
       }
@@ -790,7 +818,13 @@ export class IpxApp {
       try {
         extensions.set(type, await client.v5Extensions(type, PRIORITY.READ, hooks()));
       } catch (err) {
-        if (!(err instanceof IpxError) || ['cut', 'busy'].includes(err.code)) throw err;
+        if (
+          !(err instanceof IpxError) ||
+          ['cut', 'busy'].includes(err.code) ||
+          (err.code === 'late' && !err.sent)
+        ) {
+          throw err;
+        }
         // A secondary list failing never stops the round: the targets read before are kept.
         unreadTypes.push(type);
       }
@@ -805,7 +839,13 @@ export class IpxApp {
     try {
       ana = await client.v5Ana(PRIORITY.READ, hooks());
     } catch (err) {
-      if (!(err instanceof IpxError) || ['cut', 'busy'].includes(err.code)) throw err;
+      if (
+        !(err instanceof IpxError) ||
+        ['cut', 'busy'].includes(err.code) ||
+        (err.code === 'late' && !err.sent)
+      ) {
+        throw err;
+      }
       ana = [];
       unreadTypes.push('ana');
     }
@@ -909,6 +949,9 @@ export class IpxApp {
     if (this.warnings.size > 0) {
       parts.push(T.notApplied(listOf([...this.warnings.keys()].map(shownCode))));
     }
+    if (this.droppedPending.size > 0) {
+      parts.push(T.pendingDropped(listOf([...this.droppedPending].map(shownCode))));
+    }
     const multi = [...this.model.values()].filter((t) => t.value === MULTI);
     if (multi.length > 0) {
       parts.push(T.multiModes(listOf(multi.map((t) => shownCode(t.code)))));
@@ -991,7 +1034,7 @@ export class IpxApp {
   }
 
   /** Sends a guard again (no ack): protective priority, counted when it leaves. */
-  resendGuard(guard) {
+  resendGuard(guard, priority = PRIORITY.GUARD) {
     const client = this.client;
     const target = this.targetOf(guard.code);
     if (guard.kind === KINDS.RELAY && !this.config.relays.has(guard.code)) {
@@ -1003,7 +1046,7 @@ export class IpxApp {
     if (!client || !target || guard.inFlight) return;
     guard.inFlight = true;
     const deadline = this.monotonic() + TIMINGS.requestTimeout;
-    this.write(client, target, guard.value, PRIORITY.GUARD, {
+    this.write(client, target, guard.value, priority, {
       deadline,
       beforeSend: () => {
         // A newer command that left meanwhile (or another protective one): never sent over it.
@@ -1265,6 +1308,8 @@ export class IpxApp {
       const ready = await this.waitReady(received + TIMINGS.configWait);
       if (this.pendingProtectives.get(parsed.code) === pending) {
         if (ready) this.pendingProtectives.delete(parsed.code);
+        // Not ready means no client yet: the start that makes it sends it (ready is set in
+        // the same turn as that adoption, so no click can fall between the two).
         else if (pending) pending.waiting = false;
       }
       if (!ready) {
@@ -1541,7 +1586,6 @@ export class IpxApp {
         await this.write(client, target, wanted, PRIORITY.PROTECTIVE, {
           deadline: received + TIMINGS.commandAnswerBy,
           beforeSend: () => {
-            if (this.guards.get(code) !== guard) throw new IpxError('late', 'superseded');
             if (this.monotonic() >= sendBy) throw new IpxError('late', 'no time left to send');
           },
           onSent: () => {
@@ -1576,7 +1620,8 @@ export class IpxApp {
         throw this.refusal(ERRORS.cancelledByStop);
       }
       // Kept: sent again as soon as the lane is free, and by the reads that show another value.
-      if (generation === this.generation) this.resendGuard(guard);
+      // Still the click: ahead of the read backs.
+      if (generation === this.generation) this.resendGuard(guard, PRIORITY.PROTECTIVE);
       this.refreshStatus().catch(() => {});
       throw this.refusal(ERRORS.protectiveKept(reasonOf(lastError)));
     }

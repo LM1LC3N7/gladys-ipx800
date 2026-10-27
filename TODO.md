@@ -153,3 +153,23 @@ to date at the end of every milestone.
 - s10 of the review: the lane waits 10 ms after a socket closed before the
   next connection (the HTTP request settles on the close of its socket, not
   of the request).
+
+## Decisions after the review r2 (2026-10-27)
+
+- **B1**: in a start, the protective commands leave right after the client
+  is made, before any call to Gladys (status, Discovery): those clicked
+  before the configuration was read, then the guards of /data; commands are
+  let through in the same turn as that adoption, so no click can fall between
+  the two (a click still waiting sends its own command; one that gave up is
+  adopted by that start). A protective command kept for the configuration whose
+  output is unknown or not listed is logged and shown in the status. The
+  status of a failed configuration read is not awaited.
+- **I1**: a request of a round that never left (out of the queue at its
+  deadline) is no failure of the IPX: the round is rescheduled, like a cut.
+- Minors: an Off not sent in time is sent again at the priority of a click
+  (before the read backs); a clicked Off without answer for 1 s is cut when
+  another one waits; /data is never written between the reset of a start
+  and its read of /data; tests for the retries of a clicked Off, for
+  "several modes on" against a confirmed guard, and for the connection
+  closed before the next one opens (10 ms between two requests; Node closes
+  the socket after a "Connection: close" exchange, no extra `end()`).

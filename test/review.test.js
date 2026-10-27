@@ -57,7 +57,7 @@ test('B1: a clicked Off cuts the stuck read back of an earlier Off and leaves at
   app.stop();
 });
 
-test('B1: an Off not sent in time (behind another clicked Off) leaves as soon as the lane frees', async () => {
+test('B1: a clicked Off without answer for 1 s is cut when another Off waits', async () => {
   const zones = [created('pilot-wire', 'fp1'), created('pilot-wire', 'fp2')];
   const world = fakeIpx();
   world.FP[1] = 'Confort';
@@ -74,13 +74,35 @@ test('B1: an Off not sent in time (behind another clicked Off) leaves as soon as
   const second = settle(3).then(() =>
     gladys.fake.setValue(zones[1], zones[1].features[0], PILOT.OFF),
   );
-  const [, ack2] = await act(Promise.all([first, second]));
-  assert.match(ack2.error, /Pas encore envoyée.*renvoyée dès que l’IPX800 est libre/);
-  await act(new Promise((r) => clock.timers.setTimeout(r, 2 * SECOND)));
+  const [ack1, ack2] = await act(Promise.all([first, second]));
+  assert.equal(ack2.success, true, ack2.error);
+  assert.match(ack1.error, /Envoyée/);
   const write = world.writes().find((w) => /SetFP02=3/.test(w.path) && w.sentAt !== undefined);
-  assert.ok(write, 'SetFP02=3 written');
-  assert.ok(write.sentAt - t0 < 5.5 * SECOND, `left at ${write.sentAt - t0} ms, before any read`);
+  assert.ok(write.sentAt - t0 < 1.2 * SECOND, `left at ${write.sentAt - t0} ms`);
   assert.equal(world.FP[2], 'Arret');
+  app.stop();
+});
+
+test('B1: an Off that could not leave is sent again as soon as the lane frees, before any read', async () => {
+  const device = created('pilot-wire', 'fp1');
+  const world = fakeIpx();
+  world.FP[1] = 'Confort';
+  const { app, start, act, gladys, clock } = await setup({
+    config: v4({ poll_interval: 300 }),
+    devices: [device],
+    world,
+  });
+  await start();
+  // Refused for longer than the 250 ms of tries, then the IPX answers again.
+  world.refuseConnect = 6;
+  const t0 = clock.elapsed;
+  const ack = await act(gladys.fake.setValue(device, device.features[0], PILOT.OFF));
+  assert.match(ack.error, /Pas encore envoyée.*renvoyée dès que l’IPX800 est libre/);
+  await act(new Promise((r) => clock.timers.setTimeout(r, 500)));
+  const write = world.writes().find((w) => /SetFP01=3/.test(w.path) && w.sentAt !== undefined);
+  assert.ok(write, 'SetFP01=3 written');
+  assert.ok(write.sentAt - t0 < SECOND, `left at ${write.sentAt - t0} ms`);
+  assert.equal(world.FP[1], 'Arret');
   app.stop();
 });
 
@@ -462,4 +484,195 @@ test('V4: a command answered "status: Error" does not lift the Off guard', async
   assert.ok(app.guards.has('fp1'));
   assert.ok(TIMINGS.resendMax >= 1);
   app.stop();
+});
+
+// --- Review r2 ----------------------------------------------------------------------
+
+/** Gladys slow to take the status and the Discovery list (4 s each, virtual). */
+const slowGladys = (gladys, clock) => {
+  for (const name of ['publishDiscoveredDevices', 'setConnectionStatus']) {
+    const original = gladys[name].bind(gladys);
+    gladys[name] = async (...args) => {
+      await new Promise((r) => clock.timers.setTimeout(r, 4 * SECOND));
+      return original(...args);
+    };
+  }
+};
+
+test('r2 B1: an Off clicked during a slow start (Gladys slow) is sent in that start', async () => {
+  let calls = 0;
+  const device = created('pilot-wire', 'fp1');
+  const world = fakeIpx();
+  world.FP[1] = 'Confort';
+  const { app, gladys, wait, act, clock } = await setup({
+    config: v4(),
+    devices: [device],
+    world,
+    getConfig: async () => {
+      calls += 1;
+      if (calls === 1) throw new Error('busy');
+      return v4();
+    },
+  });
+  slowGladys(gladys, clock);
+  app.onConnected(() => gladys.getConfig());
+  await wait(SECOND);
+  const t0 = clock.elapsed;
+  const ack = await act(gladys.fake.setValue(device, device.features[0], PILOT.OFF));
+  const write = world.writes().find((w) => /SetFP01=3/.test(w.path) && w.sentAt !== undefined);
+  assert.ok(write, `sent (ack: ${JSON.stringify(ack)})`);
+  assert.ok(write.sentAt - t0 < 3.5 * SECOND, `left ${write.sentAt - t0} ms after the click`);
+  assert.equal(app.pendingProtectives.size, 0, 'nothing left for a later start');
+  app.stop();
+  app.clearConfigTimer();
+});
+
+test('r2 B1: an Off kept in /data leaves within a second of the start, whatever Gladys does', async () => {
+  const store = memoryStore();
+  const first = await setup({ config: v4(), store });
+  await first.start();
+  first.app.stop();
+  store.data.guards = [{ code: 'fp1', kind: 'pilot-wire', value: 0, resends: 0, confirmed: false }];
+  const world = fakeIpx();
+  world.FP[1] = 'Confort';
+  const second = await setup({ config: v4(), store, clock: first.clock, world });
+  slowGladys(second.gladys, second.clock);
+  const t0 = second.clock.elapsed;
+  second.app.connected(v4());
+  // No time moves: everything up to the write happens without waiting for Gladys.
+  await settle(50);
+  const write = world.writes().find((w) => /SetFP01=3/.test(w.path) && w.sentAt !== undefined);
+  assert.ok(write, 'sent before Gladys answered');
+  assert.ok(write.sentAt - t0 < SECOND, `left ${write.sentAt - t0} ms after the start`);
+  await second.wait(10 * SECOND);
+  second.app.stop();
+});
+
+test('r2 B1: an Off waiting for the configuration that is then unknown is told, not dropped silently', async () => {
+  let calls = 0;
+  const device = created('relay', 'r7', { relayKind: 'switch' });
+  const { app, gladys, wait, act } = await setup({
+    config: v4(),
+    devices: [device],
+    getConfig: async () => {
+      calls += 1;
+      if (calls <= 2) throw new Error('busy');
+      return v4();
+    },
+  });
+  await app.onConnected(() => gladys.getConfig());
+  await act(gladys.fake.setValue(device, device.features[0], 0));
+  await wait(10 * SECOND);
+  assert.match(message(gladys), /clicked before the configuration was read, not sent.*R7/);
+  app.stop();
+  app.clearConfigTimer();
+});
+
+test('r2 I1: a round left in the queue past its deadline is no failure of the IPX', async () => {
+  const relays = [1, 2, 3, 4, 5, 6, 7, 8].map((n) =>
+    created('relay', `r${n}`, { relayKind: 'switch' }),
+  );
+  const world = fakeIpx();
+  const { app, start, act, gladys, clock, wait } = await setup({
+    config: v4({ relays: 'R1,R2,R3,R4,R5,R6,R7,R8', poll_interval: 5 }),
+    devices: relays,
+    world,
+  });
+  await start();
+  await wait(3500);
+  world.latency = 700;
+  const acks = [];
+  for (const relay of relays) {
+    acks.push(gladys.fake.setValue(relay, relay.features[0], 1));
+    await act(new Promise((r) => clock.timers.setTimeout(r, 250)));
+  }
+  await act(Promise.all(acks));
+  assert.equal(app.failures, 0);
+  assert.equal(app.pause, undefined);
+  assert.doesNotMatch(message(gladys), /does not answer/);
+  const after = await act(gladys.fake.setValue(relays[0], relays[0].features[0], 0));
+  assert.ok(after.success || /Envoyée/.test(after.error), after.error);
+  app.stop();
+});
+
+test('r2: a retry of a clicked Off never leaves after a newer command on its target', async () => {
+  const device = created('pilot-wire', 'fp1');
+  const world = fakeIpx();
+  world.FP[1] = 'Confort';
+  const { app, start, act, gladys } = await setup({ config: v4(), devices: [device], world });
+  await start();
+  world.refuseConnect = 1;
+  const feature = device.features[0];
+  await act(
+    Promise.all([
+      gladys.fake.setValue(device, feature, PILOT.OFF),
+      gladys.fake.setValue(device, feature, PILOT.FROST_PROTECTION),
+    ]),
+  );
+  await act(new Promise((r) => setImmediate(r)));
+  const sent = world
+    .writes()
+    .filter((w) => w.sentAt !== undefined)
+    .map((w) => w.path.slice(-1));
+  assert.equal(world.FP[1], 'Hors Gel', `writes ${sent}`);
+  assert.equal(sent.at(-1), '2');
+  app.stop();
+});
+
+test('r2: "several modes on" read twice never releases a confirmed Off', async () => {
+  const device = created('pilot-wire', 'x4fp7-1');
+  const world = fakeIpx({ version: 'v5' });
+  const { app, start, cmd, wait } = await setup({ version: 'v5', devices: [device], world });
+  await start();
+  setV5Mode(world, 1, 'ioComfort_id');
+  await cmd(device, F('pilot-wire', 'x4fp7-1', 'mode'), PILOT.OFF);
+  assert.equal(app.guards.get('x4fp7-1').confirmed, true);
+  await wait(25 * SECOND);
+  world.io.set(300, true);
+  await wait(30 * SECOND);
+  assert.equal(app.model.get('x4fp7-1').value, MULTI);
+  assert.ok(app.guards.has('x4fp7-1'), 'unreadable is never "changed elsewhere"');
+  app.stop();
+});
+
+test('r2: an Off not sent in time in a scene of 5 on a slow IPX goes before the read backs', async () => {
+  const zones = [1, 2, 3, 4, 5].map((n) => created('pilot-wire', `fp${n}`));
+  const world = fakeIpx();
+  for (let n = 1; n <= 5; n += 1) world.FP[n] = 'Confort';
+  const { app, start, act, gladys, wait } = await setup({
+    config: v4({ v4_extensions: 'FP1-FP8', poll_interval: 300 }),
+    devices: zones,
+    world,
+  });
+  await start();
+  world.latency = 900;
+  await act(Promise.all(zones.map((z) => gladys.fake.setValue(z, z.features[0], PILOT.OFF))));
+  await wait(3000);
+  const sent = world.requests.filter((r) => r.sentAt !== undefined);
+  const fifth = sent.findIndex((r) => /SetFP05=3/.test(r.path));
+  const readBack = sent.findIndex((r, i) => i > 0 && /Get=all/.test(r.path));
+  assert.ok(fifth !== -1 && fifth < readBack, 'the 5th Off before the read backs');
+  assert.deepEqual(world.FP.slice(1, 6), ['Arret', 'Arret', 'Arret', 'Arret', 'Arret']);
+  app.stop();
+});
+
+test('r2: /data is never written between the reset of a start and its read of /data', async () => {
+  const store = memoryStore();
+  const first = await setup({ config: v4(), store });
+  await first.start();
+  first.app.stop();
+  store.data.guards = [{ code: 'fp1', kind: 'pilot-wire', value: 0, resends: 0, confirmed: false }];
+  const second = await setup({ config: v4(), store, clock: first.clock });
+  const load = store.load.bind(store);
+  store.load = async () => {
+    await new Promise((r) => second.clock.timers.setTimeout(r, 80));
+    return load();
+  };
+  const started = second.app.connected(v4());
+  await settle(5);
+  await second.app.saveMemory();
+  assert.equal(store.data.guards.length, 1, 'the kept Off is still in /data');
+  await second.act(started);
+  assert.ok(second.app.guards.has('fp1'));
+  second.app.stop();
 });

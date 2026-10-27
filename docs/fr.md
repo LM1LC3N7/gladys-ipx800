@@ -82,11 +82,15 @@ lue, même avant un redémarrage) ; la valeur n’est pas l’un des six modes.
 L’extinction d’un relais est refusée si le relais n’est pas listé. Cliqué
 avant que la configuration soit lue dans Gladys (la clé d’API n’est gardée
 que là, jamais dans `/data`), il la demande aussitôt à Gladys et attend 3 s ;
-si elle n’est pas venue, il est gardé en mémoire et envoyé dès sa lecture
-(relue 5 s après, puis toutes les minutes au plus). Quand l’IPX800 ne le
-prend pas en 3,5 s (un autre Arrêt en cours d’écriture, pas de connexion), il
-est gardé et renvoyé dès que l’IPX800 est libre, par les lectures suivantes
-qui montrent un autre mode, et après un redémarrage.
+si elle n’est pas venue, il est gardé en mémoire et envoyé dès que la clé
+d’API est connue (relue 5 s après, puis toutes les minutes au plus), avant
+tout envoi vers Gladys ; si la sortie s’avère inconnue ou non listée, l’état
+le dit. Un Arrêt gardé dans `/data` part de même au démarrage, sans attendre
+Gladys. Quand l’IPX800 ne le prend pas en 3,5 s (pas de connexion), il est
+gardé et renvoyé dès que l’IPX800 est libre, avant les relectures, par les
+lectures suivantes qui montrent un autre mode, et après un redémarrage. Un
+Arrêt cliqué pendant qu’un autre reste sans réponse depuis 1 s
+l’interrompt.
 
 Un Arrêt ou Hors-gel que les lectures ne montrent pas est renvoyé, 3 fois au
 plus ; puis l’état le dit (vérifiez sur place). Une zone V5 avec plusieurs

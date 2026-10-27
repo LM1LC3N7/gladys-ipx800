@@ -167,6 +167,8 @@ export const TIMINGS = {
   /** A protective command not sent at once is tried again during this budget. */
   protectiveRetry: 250,
   protectiveRetryGap: 50,
+  /** A protective write without answer for this long is cut when another one waits. */
+  stuckProtective: SECOND,
   /** Between two requests to the IPX (after the previous connection is closed). */
   laneGap: 10,
   /** A request cut by a protective command is closed within this (socket destroyed). */

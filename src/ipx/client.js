@@ -94,6 +94,19 @@ export class IpxClient {
           (priority <= PRIORITY.COMMAND && this.current.priority === PRIORITY.READ))
       ) {
         this.current.cut?.();
+      } else if (
+        priority === PRIORITY.PROTECTIVE &&
+        this.current?.priority === PRIORITY.PROTECTIVE
+      ) {
+        // Another protective command that gets no answer for 1 s is cut too (it may have
+        // left: "sent, without confirmation"); this one does not wait for its deadline.
+        const running = this.current;
+        this.timers.setTimeout(
+          () => {
+            if (this.current === running) running.cut?.();
+          },
+          Math.max(0, running.startedAt + TIMINGS.stuckProtective - this.monotonic()),
+        );
       }
       this.pump();
     });
@@ -105,7 +118,7 @@ export class IpxClient {
     }
     const job = this.queue.shift();
     this.timers.clearTimeout(job.timer);
-    const running = { priority: job.priority, cutAsked: false };
+    const running = { priority: job.priority, cutAsked: false, startedAt: this.monotonic() };
     // Until the transport hands its own cut, a cut asked is remembered.
     running.cut = () => {
       running.cutAsked = true;

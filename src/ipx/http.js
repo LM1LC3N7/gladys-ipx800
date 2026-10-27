@@ -153,13 +153,11 @@ export function request(
             }
             chunks.push(chunk);
           });
-          // The answer is whole: our side of the socket is ended here, whatever the server does
-          // with "Connection: close"; the answer is delivered once the server closed too (or
-          // destroyed 500 ms later): the next request never opens beside it.
-          res.on('end', () => {
-            settle(resolve, { status: res.statusCode, body: Buffer.concat(chunks) });
-            res.socket?.end();
-          });
+          // The answer is whole; it is delivered once the socket is closed (Node closes it after
+          // a "Connection: close" exchange; destroyed 500 ms later otherwise).
+          res.on('end', () =>
+            settle(resolve, { status: res.statusCode, body: Buffer.concat(chunks) }),
+          );
           res.on('error', (err) => settle(reject, networkError(err, true), true));
           res.on('aborted', () =>
             settle(reject, new IpxError('network', 'answer cut short', { sent: true }), true),

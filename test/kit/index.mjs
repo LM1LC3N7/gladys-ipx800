@@ -2,3 +2,4 @@
 // so that the CI of the repository runs them without the kit.
 export { httpServer, reply } from './http.mjs';
 export { testClock, realClock, spyOn, measurePeriod, settle } from './clock.mjs';
+export { tcpServer } from './tcp.mjs';

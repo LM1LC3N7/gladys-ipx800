@@ -79,11 +79,14 @@ never read, even before a restart); the value is not one of the six modes.
 Off for a relay is refused when the relay is not listed. Clicked before the
 configuration is read from Gladys (the API key is kept there only, never in
 `/data`), it asks Gladys for it at once and waits 3 s; if it has not come,
-it is kept in memory and sent as soon as it is read (read again 5 s later,
-then every minute at most). When the IPX800 does not take it within 3.5 s
-(another Off being written, no connection), it is kept and sent again as
-soon as the IPX800 is free, by the next reads that show another mode, and
-after a restart.
+it is kept in memory and sent as soon as the API key is known (read again
+5 s later, then every minute at most), before anything is sent to Gladys;
+if the output turns out unknown or not listed, the status says so. An Off
+kept in `/data` leaves the same way at start, without waiting for Gladys.
+When the IPX800 does not take it within 3.5 s (no connection), it is kept
+and sent again as soon as the IPX800 is free, before the read backs, by the
+next reads that show another mode, and after a restart. An Off clicked while
+another one gets no answer for 1 s interrupts it.
 
 An Off or Frost protection that the reads do not show is sent again, 3 times
 at most; then the status says so (check on site). A V5 zone with several
