@@ -1,6 +1,6 @@
 {
   "name": "gladys-ipx800",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Gladys Assistant integration for the GCE IPX800 V4 and V5 (relays, inputs, pilot wire, X-THL) through their local HTTP API.",
   "type": "module",

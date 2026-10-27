@@ -10,6 +10,8 @@ the notes of the version's GitHub Release.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-27
+
 ### Added
 
 - First version: GCE IPX800 V4 and V5 through the local HTTP API (API key):
@@ -17,3 +19,6 @@ the notes of the version's GitHub Release.
   pilot-wire zones of the X-4FP (Off and Frost protection sent first, Eco and
   Comfort behind an option, off by default), X-THL sensors; "Test the
   connection".
+
+[Unreleased]: https://github.com/LM1LC3N7/gladys-ipx800/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/LM1LC3N7/gladys-ipx800/releases/tag/v0.1.1
