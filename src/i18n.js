@@ -57,12 +57,10 @@ export function describe(kind, value) {
 }
 
 export const FEATURE_NAMES = {
-  // Shown on a relay nobody listed: says where it becomes drivable (only new devices get the
-  // name: Gladys keeps the one of a feature already created).
-  [F.READONLY]: both(
-    'State (read only, see Relays Gladys may drive)',
-    'État (lecture seule, voir Relais pilotables par Gladys)',
-  ),
+  // Right in both states: a relay listed later keeps this feature next to its switch, under
+  // the name it was created with (Gladys never renames it, and it cannot be deleted alone).
+  // What to do lives in the status and the guide.
+  [F.READONLY]: both('State (read only)', 'État (lecture seule)'),
   [F.SWITCH]: both('Switch', 'Interrupteur'),
   [F.LIGHT]: both('Light', 'Lumière'),
   [F.STATE]: both('State', 'État'),
@@ -183,13 +181,18 @@ export const T = {
   extensionErrors: (list) =>
     both(`Extensions not understood: ${list.en}.`, `Extensions non comprises : ${list.fr}.`),
   relaysReadOnly: (count) =>
-    both(
-      `${count} relay(s) read only: list them in Configuration → Relays Gladys may drive to drive them.`,
-      `${count} relais en lecture seule : listez-les dans Configuration → Relais pilotables par Gladys pour les piloter.`,
-    ),
+    count === 1
+      ? both(
+          '1 relay read only: list it in Configuration → Relays Gladys may drive only if Gladys must drive it (never a pump, a ventilation, a door strike…).',
+          '1 relais en lecture seule : listez-le dans Configuration → Relais pilotables par Gladys seulement si Gladys doit le piloter (jamais une pompe, une VMC, une gâche…).',
+        )
+      : both(
+          `${count} relays read only: list in Configuration → Relays Gladys may drive those Gladys must drive (never a pump, a ventilation, a door strike…).`,
+          `${count} relais en lecture seule : listez dans Configuration → Relais pilotables par Gladys ceux que Gladys doit piloter (jamais une pompe, une VMC, une gâche…).`,
+        ),
   relaysToUpdate: (list) =>
     both(
-      `Relays listed, waiting for "Update" in Discovery to be driven: ${list.en}.`,
+      `Relays listed, waiting for "Update" in Discover to be driven: ${list.en}.`,
       `Relais listés, en attente de « Mettre à jour » dans Découverte pour être pilotés : ${list.fr}.`,
     ),
   thlFault: (list) =>

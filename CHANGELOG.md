@@ -14,18 +14,18 @@ the notes of the version's GitHub Release.
 
 - Relays read only by default now say so: while no relay is listed, the
   status counts the relays read only and points to Configuration → "Relays
-  Gladys may drive"; it names the listed relays whose device still waits for
-  "Update" in Discovery; the read-only feature of a new relay is named
-  "State (read only, see Relays Gladys may drive)". The guide and the field
-  description give the steps (list, save, "Update" in Discovery). Relays
-  stay read only unless listed.
+  Gladys may drive" for those Gladys must drive (with the "turn everything
+  off" caution); it names the listed relays whose device still waits for
+  "Update" in Discover. The guide lists the relays to drive at setup, before
+  creating the devices (they then come as switches), and keeps "Update" for
+  relays listed later. Relays stay read only unless listed.
 
 ### Fixed
 
 - V5: an X-8R whose id has more than 6 digits (the GCE tools show ids such
   as 4784128) can be listed in "Relays Gladys may drive".
 - V5: an X-THL whose "measurement fault" IO (`ioFault`) is on publishes no
-  measurement, and the status names it.
+  measurement (Gladys keeps showing the last one), and the status names it.
 
 ## [0.1.1] - 2026-10-27
 

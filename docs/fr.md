@@ -15,19 +15,25 @@ X-4FP et ses capteurs X-THL (température, humidité, luminosité).
    Réseau > API (cochez l’accès API).
 2. Dans Gladys, Intégrations > IPX800 : choisissez le modèle (V5 ou V4),
    saisissez l’adresse de l’IPX800 (par ex. `192.168.1.50`, donnez-lui une
-   adresse fixe dans votre box) et la clé d’API, puis enregistrez.
+   adresse fixe dans votre box) et la clé d’API. Sur la même page, listez
+   dans « Relais pilotables par Gladys » les relais que Gladys doit piloter,
+   et eux seulement (par ex. `R1, R2` ; voir « Relais » plus bas : jamais une
+   pompe, une VMC, une gâche…). Puis enregistrez.
 3. « Tester la connexion » lit l’IPX800 tout de suite (une fois un intervalle
-   passé depuis la dernière lecture) et montre ce qu’il a trouvé.
-4. Dans Découverte, créez les appareils voulus. Tous les relais arrivent **en
-   lecture seule** (une fonctionnalité « État (lecture seule…) ») : Gladys
-   montre leur état, rien ne peut les commuter.
-5. Pour piloter un relais, listez-le dans « Relais pilotables par Gladys »
-   (par ex. `R1, R2`, voir plus bas) et enregistrez. Puis, dans Découverte,
-   cliquez **« Mettre à jour »** sur chaque relais déjà créé : c’est alors
-   seulement qu’il reçoit son interrupteur (ou sa lumière). Un relais pas
-   encore créé le reçoit à sa création. L’état de l’intégration dit combien
-   de relais sont en lecture seule tant qu’aucun n’est listé, et quels relais
-   listés attendent encore « Mettre à jour ».
+   passé depuis la dernière lecture) et montre ce qu’il a trouvé. Une sortie
+   d’X-8R (V5) se liste par le code de son nom dans Découverte (par ex.
+   `X8R4259840-3`) : ajoutez-la à la liste maintenant, avant de la créer.
+4. Dans Découverte, créez les appareils voulus. Un relais listé arrive en
+   interrupteur (ou en lumière) ; les autres arrivent **en lecture seule**
+   (« État (lecture seule) ») : Gladys montre leur état, rien ne peut les
+   commuter.
+
+Un relais listé **après** sa création reste en lecture seule jusqu’à ce que
+vous cliquiez **« Mettre à jour »** sur lui dans Découverte : il reçoit alors
+son interrupteur (ou sa lumière), à côté de son « État (lecture seule) »,
+qui reste. L’état de l’intégration dit combien de relais sont en lecture
+seule tant qu’aucun n’est listé, et quels relais listés attendent encore
+« Mettre à jour ».
 
 L’IPX800 veut la clé d’API dans l’adresse de chaque requête, en http simple :
 qui peut écouter votre réseau local peut la lire, comme avec les applis de
@@ -40,7 +46,7 @@ fichiers de l’intégration.
 | Sur l’IPX800                  | Dans Gladys                                                        | Code (dans le nom)         |
 | ----------------------------- | ------------------------------------------------------------------ | -------------------------- |
 | Relais (V4 1-56, V5 1-8)      | lecture seule, ou interrupteur / lumière si vous le listez         | `R3`                       |
-| Sortie d’un X-8R (V5)         | idem                                                               | `X8R12-3` (12 : son id)    |
+| Sortie d’un X-8R (V5)         | idem                                                               | `X8R4259840-3` (son id)    |
 | Entrée (V4 1-56, V5 1-8)      | une entrée binaire (lecture seule)                                 | `D3`                       |
 | Entrée d’un X-8D / X-24D (V5) | idem                                                               | `X8D5-2`, `X24D6-10`       |
 | Zone d’un X-4FP               | fil pilote (Arrêt, Hors-gel, Éco, Confort, Confort -1, Confort -2) | `FP5` (V4), `X4FP7-2` (V5) |
@@ -56,21 +62,26 @@ L’IPX800 est lu toutes les 10 secondes par défaut (5 s au moins). Une valeur
 que l’IPX800 ne donne pas (absente, un texte, hors plage) n’est pas publiée :
 jamais comme 0.
 Sur la V5, un X-THL dont l’IO « défaut de mesure » est active ne publie rien
-tant qu’elle le reste, et l’état le nomme.
+tant qu’elle le reste, et l’état le nomme ; Gladys continue d’afficher sa
+dernière valeur publiée. Les identifiants des extensions V5 sont ceux que
+l’IPX800 leur donne (souvent un grand nombre, comme 4259840) : copiez le code depuis le nom de
+l’appareil.
 
 ## Relais : en lecture seule sauf ceux que vous listez
 
-Tous les relais sont **en lecture seule** par défaut. Pour en piloter un
-depuis Gladys, listez-le dans « Relais pilotables par Gladys », par ex.
-`R1, R3:light, X8R12-2` (`:light` en fait une lumière, sinon un
-interrupteur), puis cliquez « Mettre à jour » sur ce relais dans Découverte
-(étape 5 ci-dessus). Un interrupteur ou une lumière obéit à tout « éteins tout » de
+Un relais que vous ne listez pas est **en lecture seule**. Pour en piloter
+un depuis Gladys, listez-le dans « Relais pilotables par Gladys », par ex.
+`R1, R3:light, X8R4259840-2` (`:light` en fait une lumière, sinon un
+interrupteur), de préférence avant de le créer dans Découverte ; déjà créé,
+cliquez « Mettre à jour » sur lui dans Découverte. Un interrupteur ou une lumière obéit à tout « éteins tout » de
 Google, Alexa, du MCP et des scènes : n’y mettez jamais une pompe, un
 congélateur, une VMC, un chauffage, une gâche ni une vanne. Un relais retiré
 de la liste repasse aussitôt en lecture seule : ses commandes sont refusées,
 et une extinction que l’intégration tenait encore pour lui est abandonnée (en
-mémoire et dans `/data`, au redémarrage aussi). Son ancienne fonctionnalité
-reste dans Gladys : supprimez-la si vous voulez.
+mémoire et dans `/data`, au redémarrage aussi). Son interrupteur reste sur
+l’appareil dans Gladys (sans effet) : Gladys ne supprime pas une
+fonctionnalité seule ; seule la suppression de l’appareil, puis sa
+recréation, l’enlève, avec son historique.
 
 ## Fil pilote
 

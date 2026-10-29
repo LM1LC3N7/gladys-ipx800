@@ -15,17 +15,23 @@ extensions and its X-THL sensors (temperature, humidity, luminosity).
    Network > API (tick the API access).
 2. In Gladys, Integrations > IPX800: choose the model (V5 or V4), type the
    address of the IPX800 (e.g. `192.168.1.50`, give it a fixed address in
-   your router) and the API key, then save.
+   your router) and the API key. On the same page, list in "Relays Gladys
+   may drive" the relays Gladys must drive, and only those (e.g. `R1, R2`;
+   see "Relays" below: never a pump, a ventilation, a door strike…). Then
+   save.
 3. "Test the connection" reads the IPX800 now (once an interval has passed
-   since the last read) and shows what it found.
-4. In Discover, create the devices you want. Every relay comes **read only**
-   (a feature "State (read only…)"): Gladys shows it, nothing can switch it.
-5. To drive a relay, list it in "Relays Gladys may drive" (e.g. `R1, R2`,
-   see below) and save. Then, in Discover, click **"Update"** on each relay
-   already created: only then does it get its switch (or light). A relay not
-   created yet gets it when you create it. The status of the integration
-   says how many relays are read only while none is listed, and which listed
-   relays still wait for "Update".
+   since the last read) and shows what it found. An X-8R output (V5) is
+   listed by the code in its name in Discover (e.g. `X8R4259840-3`): add it
+   to the list now, before creating it.
+4. In Discover, create the devices you want. A listed relay comes as a
+   switch (or a light); the others come **read only** ("State (read
+   only)"): Gladys shows their state, nothing can switch them.
+
+A relay listed **after** its creation stays read only until you click
+**"Update"** on it in Discover: it then gets its switch (or light), next to
+its "State (read only)", which stays. The status of the integration says
+how many relays are read only while none is listed, and which listed relays
+still wait for "Update".
 
 The IPX800 wants the API key in the address of every request, over plain
 http: anyone who can watch your local network can read it, as with the
@@ -38,7 +44,7 @@ files of the integration.
 | On the IPX800                   | In Gladys                                                                | Code (in the name)         |
 | ------------------------------- | ------------------------------------------------------------------------ | -------------------------- |
 | Relay (V4 1-56, V5 1-8)         | read only, or a switch / light if you list it                            | `R3`                       |
-| X-8R output (V5)                | the same                                                                 | `X8R12-3` (12: its id)     |
+| X-8R output (V5)                | the same                                                                 | `X8R4259840-3` (its id)    |
 | Digital input (V4 1-56, V5 1-8) | a binary input (read only)                                               | `D3`                       |
 | X-8D / X-24D input (V5)         | the same                                                                 | `X8D5-2`, `X24D6-10`       |
 | X-4FP zone                      | pilot wire (Off, Frost protection, Eco, Comfort, Comfort -1, Comfort -2) | `FP5` (V4), `X4FP7-2` (V5) |
@@ -54,20 +60,23 @@ The IPX800 is read every 10 seconds by default (5 s at least). A value the
 IPX800 does not give (absent, a text, out of range) is not published: never
 as 0.
 On the V5, an X-THL whose own "measurement fault" IO is on publishes
-nothing until it clears, and the status names it.
+nothing until it clears, and the status names it; Gladys keeps showing its
+last published value. The ids of the V5 extensions are those the IPX800
+gives them (often 7 digits): copy the code from the device name.
 
 ## Relays: read only unless you list them
 
-Every relay is **read only** by default. To drive one from Gladys, list it in
-"Relays Gladys may drive", e.g. `R1, R3:light, X8R12-2` (`:light` makes it a
-light, otherwise a switch), then click "Update" on that relay in Discover
-(step 5 above). A switch or a light obeys every "turn everything
+A relay you do not list is **read only**. To drive one from Gladys, list it
+in "Relays Gladys may drive", e.g. `R1, R3:light, X8R4259840-2` (`:light`
+makes it a light, otherwise a switch), preferably before creating it in
+Discover; already created, click "Update" on it in Discover. A switch or a light obeys every "turn everything
 off" of Google, Alexa, the MCP and the scenes: never list a pump, a freezer,
 a ventilation, a heating, a door strike nor a valve. A relay you remove from
 the list is read only again at once: its commands are refused, and a
 switch-off the integration was still holding for it is dropped (in memory
-and in `/data`, also at a restart). Its old feature in Gladys stays: delete
-it if you want.
+and in `/data`, also at a restart). Its switch stays on the device in Gladys
+(without effect): Gladys does not delete one feature alone; only deleting
+the device, then creating it again, removes it, with its history.
 
 ## Pilot wire
 

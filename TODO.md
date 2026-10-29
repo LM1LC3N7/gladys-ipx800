@@ -206,10 +206,24 @@ APIs, other modules, not planned here).
   units, min, max, step: not the names). A listed relay not created yet is
   not named (it gets its switch at creation). The status is redone on
   device created / updated / deleted of a relay, never during a failure.
-- **Feature name** of `readonly`: "State (read only, see Relays Gladys may
-  drive)" / "État (lecture seule, voir Relais pilotables par Gladys)". Only
-  new devices get it (Gladys keeps the name of a created feature); a name
-  change never raises "Update" (names are not in the structure).
+- **Feature name** of `readonly` stays "State (read only)" / "État (lecture
+  seule)" (review r1 of 61bf7f2, I1): a relay listed after its creation
+  keeps that feature for life next to its switch, under the name it was
+  created with (Gladys never renames it, no "Update" for a name, and one
+  feature cannot be deleted alone): any hint in the name ("see Relays…")
+  would be wrong forever once the relay is driven. The hint lives in the
+  status and the guide only.
+- **Guide order**: the relays to drive are listed at step 2 (same page as
+  the address and the key), X-8R outputs after "Test the connection" (their
+  code is in the Discover names), before creating the devices: they come as
+  switches, no "Update", no read-only feature twice. "Update" stays
+  documented for a relay listed later.
+- **Status hint** (r1 m1): "list in … those Gladys must drive (never a pump,
+  a ventilation, a door strike…)", singular for one relay; English says
+  "Discover" (the tab's name, r1 m2).
+- Review r1 m4: tests for the bound 1e9 shared by the layout and the list
+  (M6), a fault not read this round no longer shown (M12), no "Connected"
+  from a device event before the first read (M24).
 - The docs still say "never tested with a real device" (a test of the
   manifest requires it): cce66 only reported the relays read; to change
   once he confirms commands (ask Louis).

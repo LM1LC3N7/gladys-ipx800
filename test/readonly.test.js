@@ -8,10 +8,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseRelays, relayCode } from '../src/config.js';
+import { T } from '../src/i18n.js';
 import { parseExternalId } from '../src/devices.js';
 import { parseV5Layout, parseV5Values, v5Fault, v5Value, v5Write } from '../src/ipx/model.js';
 import { V5, fakeIpx } from './helpers/fakeIpx.js';
-import { CONFIG, F, SECOND, created, setup } from './helpers/app.js';
+import { CONFIG, F, SECOND, created, settle, setup } from './helpers/app.js';
 
 const message = (gladys, lang = 'en') => gladys.fake.connectionStatus?.message?.[lang] ?? '';
 const discovered = (gladys, code) =>
@@ -24,11 +25,11 @@ test('no relay listed: the status counts the relays read only and says where to 
   await start();
   assert.match(
     message(gladys),
-    /16 relay\(s\) read only: list them in Configuration → Relays Gladys may drive to drive them\./,
+    /16 relays read only: list in Configuration → Relays Gladys may drive those Gladys must drive \(never a pump, a ventilation, a door strike…\)\./,
   );
   assert.match(
     message(gladys, 'fr'),
-    /16 relais en lecture seule : listez-les dans Configuration → Relais pilotables par Gladys pour les piloter\./,
+    /16 relais en lecture seule : listez dans Configuration → Relais pilotables par Gladys ceux que Gladys doit piloter \(jamais une pompe, une VMC, une gâche…\)\./,
   );
   // The safety rule is untouched: read only, no switch, no light.
   const relay = discovered(gladys, 'r1');
@@ -36,18 +37,15 @@ test('no relay listed: the status counts the relays read only and says where to 
     relay.features.map((f) => [f.external_id, f.read_only]),
     [[F('relay', 'r1', 'readonly'), true]],
   );
-  assert.equal(relay.features[0].name, 'État (lecture seule, voir Relais pilotables par Gladys)');
+  assert.equal(relay.features[0].name, 'État (lecture seule)');
   app.stop();
 });
 
 test('V4, nothing listed: the 8 relays of the IPX are said read only, in English too', async () => {
   const { app, gladys, start } = await setup({ config: { ...CONFIG.v4, language: 'en' } });
   await start();
-  assert.match(message(gladys), /8 relay\(s\) read only/);
-  assert.equal(
-    discovered(gladys, 'r1').features[0].name,
-    'State (read only, see Relays Gladys may drive)',
-  );
+  assert.match(message(gladys), /8 relays read only/);
+  assert.equal(discovered(gladys, 'r1').features[0].name, 'State (read only)');
   app.stop();
 });
 
@@ -66,7 +64,7 @@ test('a relay listed but not found does not count as drivable: the hint stays', 
     config: { ...CONFIG.v5, relays: 'X8R99-1' },
   });
   await start();
-  assert.match(message(gladys), /16 relay\(s\) read only/);
+  assert.match(message(gladys), /16 relays read only/);
   assert.match(message(gladys), /Relays declared but not found on the IPX800: X8R99-1\./);
   app.stop();
 });
@@ -77,7 +75,7 @@ test('relays listed after their creation: the status names those waiting for "Up
   const devices = [created('relay', 'r1'), created('relay', 'r2'), created('relay', 'r4')];
   const { app, gladys, start, wait } = await setup({ version: 'v5', devices });
   await start();
-  assert.match(message(gladys), /16 relay\(s\) read only/);
+  assert.match(message(gladys), /16 relays read only/);
   assert.doesNotMatch(message(gladys), /Update/);
 
   // cce66's case: R1, R2 listed (R2 as a light), R3 listed but never created.
@@ -86,7 +84,7 @@ test('relays listed after their creation: the status names those waiting for "Up
   assert.doesNotMatch(message(gladys), /read only/);
   assert.match(
     message(gladys),
-    /Relays listed, waiting for "Update" in Discovery to be driven: R1, R2\./,
+    /Relays listed, waiting for "Update" in Discover to be driven: R1, R2\./,
   );
   assert.match(
     message(gladys, 'fr'),
@@ -102,15 +100,63 @@ test('relays listed after their creation: the status names those waiting for "Up
 
   // The user clicks "Update" on R1: Gladys sends the device updated.
   await gladys.fake.deviceUpdated(discovered(gladys, 'r1'));
-  assert.match(message(gladys), /waiting for "Update" in Discovery to be driven: R2\./);
+  assert.match(message(gladys), /waiting for "Update" in Discover to be driven: R2\./);
   await gladys.fake.deviceUpdated(discovered(gladys, 'r2'));
   assert.doesNotMatch(message(gladys), /Update/);
 
   // Deleting a relay device takes it out of the reckoning as well (nothing to update).
   await gladys.fake.configUpdated({ ...CONFIG.v5, relays: 'R1, R2:light, R4' });
   await wait(SECOND);
-  assert.match(message(gladys), /waiting for "Update" in Discovery to be driven: R4\./);
+  assert.match(message(gladys), /waiting for "Update" in Discover to be driven: R4\./);
   await gladys.fake.deviceDeleted(devices[2]);
+  assert.doesNotMatch(message(gladys), /Update/);
+  app.stop();
+});
+
+test('one relay read only: said in the singular, still with the caution', () => {
+  const one = T.relaysReadOnly(1);
+  assert.match(
+    one.en,
+    /^1 relay read only: list it in .* only if Gladys must drive it \(never a pump/,
+  );
+  assert.match(
+    one.fr,
+    /^1 relais en lecture seule : listez-le dans .* seulement si Gladys doit le piloter \(jamais une pompe/,
+  );
+});
+
+test('a relay listed after its creation and updated: its feature names stay right in both states', async () => {
+  const before = created('relay', 'r1');
+  const { app, gladys, start, wait } = await setup({ version: 'v5', devices: [before] });
+  await start();
+  assert.deepEqual(
+    before.features.map((f) => f.name),
+    ['État (lecture seule)'],
+    'the name it is created with',
+  );
+  await gladys.fake.configUpdated({ ...CONFIG.v5, relays: 'R1' });
+  await wait(SECOND);
+  await gladys.fake.deviceUpdated(discovered(gladys, 'r1'));
+  const r1 = gladys.devices.find((d) => d.external_id === 'ext:ipx:relay:r1');
+  const names = r1.features.map((f) => `${f.name} ${f.read_only ? 'ro' : 'rw'}`).sort();
+  assert.deepEqual(names, ['Interrupteur rw', 'État (lecture seule) ro']);
+  for (const f of r1.features) assert.doesNotMatch(f.name, /voir|see|pilotables/);
+  assert.doesNotMatch(message(gladys), /read only|Update/);
+  app.stop();
+});
+
+test("a relay listed before its creation arrives as a switch only (the guide's order)", async () => {
+  const { app, gladys, start } = await setup({
+    version: 'v5',
+    config: { ...CONFIG.v5, relays: 'R1' },
+  });
+  await start();
+  const r1 = discovered(gladys, 'r1');
+  assert.deepEqual(
+    r1.features.map((f) => [f.name, f.read_only]),
+    [['Interrupteur', false]],
+  );
+  await gladys.fake.deviceCreated(r1);
   assert.doesNotMatch(message(gladys), /Update/);
   app.stop();
 });
@@ -221,5 +267,54 @@ test('X-THL in fault end to end: nothing published, the status names it, back on
   await app.flush();
   assert.equal(gladys.fake.lastState(F('thl', 'xthl9', 'temperature')), 21.5);
   assert.doesNotMatch(message(gladys), /fault/);
+  app.stop();
+});
+
+// --- Mutants the review found alive (r1: M6, M12, M24) ----------------------------------------
+
+test('M6: an X-8R whose _id is exactly the bound (1e9) is published, and can be listed', () => {
+  const at = (id) => parseV5Layout(V5.ipx, new Map([['x8r', [{ ...V5.x8r[0], _id: id }]]])).targets;
+  const code = relayCode('X8R1000000000-1', 'v5');
+  assert.equal(code, 'x8r1000000000-1');
+  assert.ok(at(1e9).has(code), 'the layout and the list share the bound');
+  assert.ok(![...at(1e9 + 1).keys()].some((c) => c.startsWith('x8r')), 'beyond it, neither');
+  assert.equal(relayCode('X8R1000000001-1', 'v5'), undefined);
+});
+
+test('M12: an X-THL in fault whose list is not read this round is no longer said in fault', async () => {
+  const world = fakeIpx({ version: 'v5' });
+  world.layout.xthl[0].ioFault_id = 403;
+  world.io.set(403, true);
+  const { app, gladys, start, wait } = await setup({ version: 'v5', world });
+  await start();
+  assert.match(message(gladys), /measurement fault.*XTHL9/);
+  world.failPaths.set('ebx/xthl', 500);
+  await wait(10 * SECOND);
+  assert.match(message(gladys), /Extensions not read this time.*XTHL/);
+  assert.doesNotMatch(message(gladys), /fault/, 'a fault not read is not shown');
+  app.stop();
+});
+
+test('M24: a device event before the first read never shows "Connected"', async () => {
+  const world = fakeIpx({ version: 'v5' });
+  world.latency = 4000;
+  const device = created('relay', 'r1');
+  const { app, gladys, act, wait } = await setup({
+    version: 'v5',
+    world,
+    config: { ...CONFIG.v5, relays: 'R1' },
+    devices: [device],
+  });
+  const starting = app.connected({ ...CONFIG.v5, relays: 'R1' });
+  await settle();
+  assert.doesNotMatch(message(gladys), /Connected/);
+  await gladys.fake.deviceUpdated(device);
+  await gladys.fake.deviceDeleted(device);
+  assert.doesNotMatch(message(gladys), /Connected/, 'nothing read yet');
+  world.latency = 20;
+  await act(starting);
+  await wait(30 * SECOND);
+  await gladys.fake.deviceUpdated(device);
+  assert.match(message(gladys), /Connected/, 'once read, the status is redone');
   app.stop();
 });
