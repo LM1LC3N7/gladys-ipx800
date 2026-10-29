@@ -311,3 +311,7 @@ APIs, other modules, not planned here).
   priority: never cut by a later click).
 - `npm test` runs with `--test-timeout=60000` (a stuck test never holds a
   runner).
+
+## Next patch (review r2, 57e568d)
+
+- A relay removed from the list, its device deleted then recreated at once, gets back a switch that does nothing until the next read (10 s) or a Scan: `deviceDeleted` does not republish Discovery. Call `publishDevices()` there, or tell users to click Scan first.
