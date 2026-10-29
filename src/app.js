@@ -80,6 +80,7 @@ import {
   v4WriteQuery,
   v5FromKept,
   v5Kept,
+  v5Fault,
   v5Value,
   v5Write,
 } from './ipx/model.js';
@@ -853,14 +854,18 @@ export class IpxApp {
     if (values.error) throw new IpxError(values.error, 'not an IPX800 V5 answer', { sent: true });
     const targets = new Map();
     for (const [code, target] of layout.targets) {
-      targets.set(code, { ...target, value: v5Value(target, values) });
+      targets.set(code, {
+        ...target,
+        value: v5Value(target, values),
+        ...(target.kind === KINDS.THL ? { fault: v5Fault(target, values) } : {}),
+      });
     }
     // The types not read this time: the targets read before, still known, not fresh.
     for (const [code, target] of this.model) {
       const type = /^(x8r|x8d|x24d|x4fp|xthl)\d/.exec(code)?.[1];
       if (!targets.has(code) && type && !layout.types.has(type)) {
         // Its ids were not checked in this round: no value from them.
-        targets.set(code, { ...target, value: undefined });
+        targets.set(code, { ...target, value: undefined, fault: undefined });
       }
     }
     return { targets, at, unreadTypes };
@@ -923,7 +928,7 @@ export class IpxApp {
       else if (target.kind === KINDS.PILOT) counts.zones += 1;
       else counts.thl += 1;
     }
-    const parts = [T.connected(this.config.version, counts)];
+    const parts = [T.connected(this.config.version, counts), ...this.relayHints()];
     if (this.config.relayErrors.length > 0) {
       parts.push(T.relayErrors(listOf(this.config.relayErrors)));
     }
@@ -956,14 +961,45 @@ export class IpxApp {
     if (multi.length > 0) {
       parts.push(T.multiModes(listOf(multi.map((t) => shownCode(t.code)))));
     }
+    const faults = [...this.model.values()].filter((t) => t.fault === true);
+    if (faults.length > 0) {
+      parts.push(T.thlFault(listOf(faults.map((t) => shownCode(t.code)))));
+    }
     if (this.saveFailed || this.storeUnreadable) parts.push(T.storeProblem);
     return join(...parts);
   }
 
-  async refreshStatus() {
-    if (this.round && !this.offline && !this.refusedApplies()) {
-      await this.setStatus(true, this.statusMessage());
+  /**
+   * What the user must do for the relays to be driven: none listed (all read
+   * only, the default), or a relay listed whose device, created in Gladys
+   * before, still lacks the feature of its kind (Gladys adds it only on
+   * "Update" in Discovery). Both read from what the SDK knows (the
+   * configuration and `gladys.devices`), nothing guessed.
+   */
+  relayHints() {
+    const relays = [...this.model.values()].filter((t) => t.kind === KINDS.RELAY);
+    const listed = relays.filter((t) => this.config.relays.has(t.code));
+    const hints = [];
+    if (relays.length > 0 && listed.length === 0) {
+      hints.push(T.relaysReadOnly(relays.length));
     }
+    const created = new Map(this.createdDevices().map((d) => [d.external_id, d]));
+    const waiting = listed.filter((t) => {
+      const ids = idsOf(this.gladys, t.kind, t.code);
+      const device = created.get(ids.device);
+      const feature = ids.feature(this.config.relays.get(t.code));
+      return (
+        device !== undefined && !(device.features ?? []).some((f) => f?.external_id === feature)
+      );
+    });
+    if (waiting.length > 0) {
+      hints.push(T.relaysToUpdate(listOf(waiting.map((t) => shownCode(t.code)))));
+    }
+    return hints;
+  }
+
+  async refreshStatus() {
+    await this.statusAgain();
     await this.flush();
   }
 
@@ -1222,10 +1258,22 @@ export class IpxApp {
       this.queueStates(target, created);
       await this.flush();
     }
+    // A relay created or updated in Discovery may end a "waiting for Update" in the status.
+    if (parsed?.kind === KINDS.RELAY) await this.statusAgain();
   }
 
   async deviceDeleted(device) {
     if (device?.external_id) this.publisher.forget(device.external_id);
+    if (parseExternalId(device?.external_id, this.gladys.selector)?.kind === KINDS.RELAY) {
+      await this.statusAgain();
+    }
+  }
+
+  /** The status of the last round again (what Gladys knows changed), never during a failure. */
+  async statusAgain() {
+    if (this.round && !this.offline && !this.refusedApplies()) {
+      await this.setStatus(true, this.statusMessage());
+    }
   }
 
   /** The Discovery tab asks for a scan: a round now when it is due, else the last list. */

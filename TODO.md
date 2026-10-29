@@ -14,6 +14,11 @@ to date at the end of every milestone.
       in-memory IPX (V4 and V5) on a virtual clock, and a real local HTTP
       server on a real clock (x20).
 - [x] **Review r4** (2026-10-27): APPROUVÉ, no blocker (4th round, rule of 5).
+- [x] **First real device** (2026-10-29): cce66 (forum), IPX800 V5, two
+      relays and an X-4FP: reads work; the relays came read only (by design)
+      without anything saying so. Next patch: status hints, guide steps,
+      read-only feature name; V5 API checked against cce66's GCE tools (see
+      "V5 API against cce66's tools").
 - [ ] **Next patch — review r4 leftovers**: at 900 ms per request, 5 zones
       clicked at once are all Off at 4.56 s but the last acks come back
       without confirmation (one request at a time); say in the docs that a
@@ -48,6 +53,74 @@ to date at the end of every milestone.
   an extension removed and added again may give its ids to other IOs.
 - V4: the number of X-THL (14 taken here, from the numbering of their
   measurements up to 42 in the GCE wiki).
+
+## V5 API against cce66's tools (2026-10-29)
+
+Source: https://github.com/cce66/Utilitaires_IPX800_X-Pool_Ecodevices_X-Display-V2_ScanDevice_Broker-Monitor_Modbus2Mqtt_Hub
+(commit e76f2b3, MIT, written with Claude Code): `GCE_IPX800V5_Api-Deck v2.html`
+and `GCE_IPX800V5_Widget-Studio_v1.html`. Used for API facts only, no code
+copied (nothing to credit in `THIRD_PARTY_NOTICES.md`). Not a GCE reference
+either: a tester built by a user, so what it shows is what his IPX answers,
+not a specification.
+
+- Confirmed: `GET|PUT /api/<path>?ApiKey=<key>` (key in the query string,
+  `Content-Type: application/json` on a PUT, as here); `option=filter_id` is
+  a real option of the API; `system/ipx` has `ioRelayState`, `ioRelays`,
+  `ioDInput` (8 each); `ebx/x8r|x8d|x24d|x4fp|xthl` are lists of objects with
+  `_id` and `name`; X-8D `ioInput` (8), X-24D `ioInput` (24), X-8R `ioOutput`
+  (8); X-4FP `ioComfort`, `ioEco`, `ioAntiFreeze`, `ioStop`, `ioComfort_1`,
+  `ioComfort_2` (4 each, plus `ioAll*`); X-THL `anaTemp`, `anaHum`, `anaLum`;
+  `core/io` items `{ _id, name, virtual, on }`; `core/ana` items
+  `{ _id, name, virtual, unit, nbdecimal, value }`. V4 (`GCE_IPX800V4_Api-Deck`):
+  `SetFPxx` codes 0 Comfort, 1 Eco, 2 Frost protection, 3 Off, 4 Comfort -1,
+  5 Comfort -2, as here.
+- Fixed: the X-8R id typed in "Relays Gladys may drive" was limited to 6
+  digits while the layout takes ids up to 1e9; the Widget Studio's example
+  extension `_id` is 4784128 (0x490000, 7 digits): such an X-8R output was
+  published but could never be listed. Now 10 digits, up to 1e9.
+- Fixed: X-THL has an `ioFault` IO ("Mesure erreur", on = fault): a sensor in
+  fault publishes nothing (its analogs may hold anything) and the status
+  names it. Optional: an answer without `ioFault_id`, or the IO not in
+  `core/io`, reads as before.
+- Not shown, so still open (questions below): the field names with
+  `option=filter_id` (`ioRelays_id`...: as pypx800v5 reads them; the tools
+  show only the names without the option, where they hold the values);
+  X-8R `ioOutputState` (the tools show only `ioOutput`); `PUT core/io/<id>`
+  `{ "on": bool }` (the tools send `{ "toggle": true }`, or `PUT
+ebx/<type>/<id>` with arrays of `"on"`/`"off"`/`"toggle"`); whether a
+  `core/ana` `value` needs `nbdecimal` (21.5 or 215: a raw 215 °C is out of
+  range here and not published, so the risk is no value, never a wrong one).
+- Different paths in the tools, not used here: writes through
+  `PUT ebx/x4fp/<id>` / `PUT system/ipx` with arrays (absolute writes on one
+  IO are kept: fewer side effects on the other zones); the Widget Studio
+  reads `GET ebx/<type>/<n>` with an index `n` that is not the `_id` (its own
+  comment), the Api-Deck uses the `_id`: not used here (the lists are read
+  whole).
+
+## Questions for cce66 (his tests on V3, V4, V5, Eco-Devices, X-Pool)
+
+Only the V4 and V5 are in this integration (V3, Eco-Devices, X-Pool: other
+APIs, other modules, not planned here).
+
+1. V5: the answer of `GET /api/system/ipx?option=filter_id&ApiKey=…` (ids
+   only, no key): are the fields `ioRelays_id`, `ioRelayState_id`,
+   `ioDInput_id`?
+2. V5: the answer of `GET /api/ebx/x4fp?option=filter_id` and
+   `GET /api/ebx/x8r?option=filter_id` (`ioOutputState_id` there?), and of
+   `ebx/xthl` if he has one (`ioFault_id`?).
+3. V5 X-4FP: in the Gladys status, does "Mode unreadable (several modes on)"
+   ever show? Off then Frost protection from Gladys: does the IPX page show
+   only the last mode on for that zone?
+4. V5 relays: after listing R1, R2 and "Update" in Discovery, does switching
+   from Gladys work both ways, and does a change from the IPX page show in
+   Gladys within the interval?
+5. V5 `core/ana`: is an X-THL temperature `21.5` or `215` (with
+   `nbdecimal` 1)?
+6. V4 (if he tests one): what a wrong API key answers (401, or 200 with
+   `"status": "Error"`), and the texts of `FP<e> Zone <z>` in `Get=all`
+   (`Arret` or `Arrêt`, `Hors Gel`...).
+7. The status: did the new hints (relays read only, waiting for "Update")
+   say enough, in his own words?
 
 ## Decisions
 
@@ -118,6 +191,28 @@ to date at the end of every milestone.
   (V5 extensions by their IPX id). Frozen.
 - **Units**: °C, %, lux only (core list).
 - **Not in the manifest**: `keywords` and `countries` (need Gladys 5.3.0).
+
+## Decisions after the first real test (2026-10-29)
+
+- **Read only stays the default** (no relay becomes a switch without the
+  list); the status says it while no relay is listed ("N relay(s) read
+  only: list them in Configuration → Relays Gladys may drive"), counted on
+  the relays read this round. One listed relay present on the IPX ends that
+  hint; one listed but absent does not.
+- **"Waiting for Update"** is known, not guessed: a listed relay whose device
+  is in `gladys.devices` (created by the user) without the feature of its
+  kind. Gladys adds a feature only on "Update" in Discovery (the core's
+  `structure_changed` compares the feature external ids, categories, types,
+  units, min, max, step: not the names). A listed relay not created yet is
+  not named (it gets its switch at creation). The status is redone on
+  device created / updated / deleted of a relay, never during a failure.
+- **Feature name** of `readonly`: "State (read only, see Relays Gladys may
+  drive)" / "État (lecture seule, voir Relais pilotables par Gladys)". Only
+  new devices get it (Gladys keeps the name of a created feature); a name
+  change never raises "Update" (names are not in the structure).
+- The docs still say "never tested with a real device" (a test of the
+  manifest requires it): cce66 only reported the relays read; to change
+  once he confirms commands (ask Louis).
 
 ## Decisions after the review r1 (2026-10-27)
 

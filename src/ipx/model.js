@@ -38,7 +38,7 @@ const measure = (value, range) =>
     : undefined;
 
 /** An IPX id: a non-negative integer. */
-const isId = (value) => Number.isInteger(value) && value >= 0 && value <= 1e9;
+const isId = (value) => Number.isInteger(value) && value >= 0 && value <= V5_LIMITS.maxId;
 
 /** A name the IPX gives: printable, bounded; undefined otherwise. */
 export function cleanName(raw) {
@@ -263,12 +263,16 @@ export function parseV5Layout(ipx, extensions) {
         const luminosity = own(ext, 'anaLum_id');
         if (![temperature, humidity, luminosity].every(isId)) continue;
         const code = `xthl${id}`;
+        // `ioFault`: the X-THL's own "measurement error" IO (on = fault), as the V5 API
+        // lists it; optional (an answer without it reads as before).
+        const fault = own(ext, 'ioFault_id');
         targets.set(code, {
           code,
           kind: KINDS.THL,
           ext: id,
           extName: name,
           ana: { temperature, humidity, luminosity },
+          ...(isId(fault) ? { faultIo: fault } : {}),
         });
       }
     }
@@ -296,6 +300,8 @@ export function v5Value(target, values) {
     return found;
   }
   if (target.kind === KINDS.THL) {
+    // A sensor in fault gives no measurement (its analogs may hold anything).
+    if (v5Fault(target, values)) return undefined;
     return thlValue(
       values.ana.get(target.ana.temperature),
       values.ana.get(target.ana.humidity),
@@ -303,6 +309,11 @@ export function v5Value(target, values) {
     );
   }
   return undefined;
+}
+
+/** True when the X-THL reads its fault IO on (an IO not read is no fault: nothing to go by). */
+export function v5Fault(target, values) {
+  return target.faultIo !== undefined && values.io.get(target.faultIo) === true;
 }
 
 /** The V5 IO a command drives and the value it puts there; undefined when none. */

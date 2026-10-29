@@ -95,7 +95,9 @@ export function parseApiKey(raw) {
   return /^[\x21-\x7e]{1,128}$/.test(text) ? text : null;
 }
 
-const RELAY = /^(?:r(\d{1,2})|x8r(\d{1,6})-(\d{1,2}))$/;
+// The X-8R id is the `_id` the IPX gives the extension: as large as the layout takes (up to
+// 1e9, see src/ipx/model.js), so that every X-8R output published can also be listed.
+const RELAY = /^(?:r(\d{1,2})|x8r(\d{1,10})-(\d{1,2}))$/;
 
 /** A relay code of the version, normalized (`r3`, `x8r12-3`); undefined when invalid. */
 export function relayCode(text, version) {
@@ -113,7 +115,7 @@ export function relayCode(text, version) {
   }
   const id = Number(match[2]);
   const n = Number(match[3]);
-  return n >= 1 && n <= V5_LIMITS.x8 ? `x8r${id}-${n}` : undefined;
+  return id <= V5_LIMITS.maxId && n >= 1 && n <= V5_LIMITS.x8 ? `x8r${id}-${n}` : undefined;
 }
 
 /**

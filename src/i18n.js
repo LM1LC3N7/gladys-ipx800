@@ -57,7 +57,12 @@ export function describe(kind, value) {
 }
 
 export const FEATURE_NAMES = {
-  [F.READONLY]: both('State (read only)', 'État (lecture seule)'),
+  // Shown on a relay nobody listed: says where it becomes drivable (only new devices get the
+  // name: Gladys keeps the one of a feature already created).
+  [F.READONLY]: both(
+    'State (read only, see Relays Gladys may drive)',
+    'État (lecture seule, voir Relais pilotables par Gladys)',
+  ),
   [F.SWITCH]: both('Switch', 'Interrupteur'),
   [F.LIGHT]: both('Light', 'Lumière'),
   [F.STATE]: both('State', 'État'),
@@ -177,6 +182,21 @@ export const T = {
     both(`Relays not understood: ${list.en}.`, `Relais non compris : ${list.fr}.`),
   extensionErrors: (list) =>
     both(`Extensions not understood: ${list.en}.`, `Extensions non comprises : ${list.fr}.`),
+  relaysReadOnly: (count) =>
+    both(
+      `${count} relay(s) read only: list them in Configuration → Relays Gladys may drive to drive them.`,
+      `${count} relais en lecture seule : listez-les dans Configuration → Relais pilotables par Gladys pour les piloter.`,
+    ),
+  relaysToUpdate: (list) =>
+    both(
+      `Relays listed, waiting for "Update" in Discovery to be driven: ${list.en}.`,
+      `Relais listés, en attente de « Mettre à jour » dans Découverte pour être pilotés : ${list.fr}.`,
+    ),
+  thlFault: (list) =>
+    both(
+      `X-THL reporting a measurement fault, values not published: ${list.en}.`,
+      `X-THL en défaut de mesure, valeurs non publiées : ${list.fr}.`,
+    ),
   relaysMissing: (list) =>
     both(
       `Relays declared but not found on the IPX800: ${list.en}.`,

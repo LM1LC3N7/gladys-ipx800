@@ -111,7 +111,16 @@ export const POLL_INTERVAL = { min: 5, max: 300, default: 10 };
 /** X-THL: the GCE wiki numbers their measurements up to 42 (3 each): 14 sensors (to check). */
 export const V4_LIMITS = { relays: 56, inputs: 56, zones: 16, thl: 14 };
 /** V5: the IPX's own relays and inputs; outputs per extension. */
-export const V5_LIMITS = { relays: 8, inputs: 8, extensions: 16, zones: 4, x8: 8, x24: 24 };
+export const V5_LIMITS = {
+  relays: 8,
+  inputs: 8,
+  extensions: 16,
+  zones: 4,
+  x8: 8,
+  x24: 24,
+  /** The largest IPX id taken (IOs, analogs, extensions). */
+  maxId: 1e9,
+};
 
 /** A measurement out of these ranges is not one (never published). */
 export const RANGES = {

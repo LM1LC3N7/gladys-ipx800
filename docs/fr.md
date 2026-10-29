@@ -18,7 +18,16 @@ X-4FP et ses capteurs X-THL (température, humidité, luminosité).
    adresse fixe dans votre box) et la clé d’API, puis enregistrez.
 3. « Tester la connexion » lit l’IPX800 tout de suite (une fois un intervalle
    passé depuis la dernière lecture) et montre ce qu’il a trouvé.
-4. Dans Découverte, créez les appareils voulus.
+4. Dans Découverte, créez les appareils voulus. Tous les relais arrivent **en
+   lecture seule** (une fonctionnalité « État (lecture seule…) ») : Gladys
+   montre leur état, rien ne peut les commuter.
+5. Pour piloter un relais, listez-le dans « Relais pilotables par Gladys »
+   (par ex. `R1, R2`, voir plus bas) et enregistrez. Puis, dans Découverte,
+   cliquez **« Mettre à jour »** sur chaque relais déjà créé : c’est alors
+   seulement qu’il reçoit son interrupteur (ou sa lumière). Un relais pas
+   encore créé le reçoit à sa création. L’état de l’intégration dit combien
+   de relais sont en lecture seule tant qu’aucun n’est listé, et quels relais
+   listés attendent encore « Mettre à jour ».
 
 L’IPX800 veut la clé d’API dans l’adresse de chaque requête, en http simple :
 qui peut écouter votre réseau local peut la lire, comme avec les applis de
@@ -46,13 +55,16 @@ la zone z du X-4FP e : n = 4 × (e − 1) + z).
 L’IPX800 est lu toutes les 10 secondes par défaut (5 s au moins). Une valeur
 que l’IPX800 ne donne pas (absente, un texte, hors plage) n’est pas publiée :
 jamais comme 0.
+Sur la V5, un X-THL dont l’IO « défaut de mesure » est active ne publie rien
+tant qu’elle le reste, et l’état le nomme.
 
 ## Relais : en lecture seule sauf ceux que vous listez
 
 Tous les relais sont **en lecture seule** par défaut. Pour en piloter un
 depuis Gladys, listez-le dans « Relais pilotables par Gladys », par ex.
 `R1, R3:light, X8R12-2` (`:light` en fait une lumière, sinon un
-interrupteur). Un interrupteur ou une lumière obéit à tout « éteins tout » de
+interrupteur), puis cliquez « Mettre à jour » sur ce relais dans Découverte
+(étape 5 ci-dessus). Un interrupteur ou une lumière obéit à tout « éteins tout » de
 Google, Alexa, du MCP et des scènes : n’y mettez jamais une pompe, un
 congélateur, une VMC, un chauffage, une gâche ni une vanne. Un relais retiré
 de la liste repasse aussitôt en lecture seule : ses commandes sont refusées,

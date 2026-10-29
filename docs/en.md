@@ -18,7 +18,14 @@ extensions and its X-THL sensors (temperature, humidity, luminosity).
    your router) and the API key, then save.
 3. "Test the connection" reads the IPX800 now (once an interval has passed
    since the last read) and shows what it found.
-4. In Discover, create the devices you want.
+4. In Discover, create the devices you want. Every relay comes **read only**
+   (a feature "State (read only…)"): Gladys shows it, nothing can switch it.
+5. To drive a relay, list it in "Relays Gladys may drive" (e.g. `R1, R2`,
+   see below) and save. Then, in Discover, click **"Update"** on each relay
+   already created: only then does it get its switch (or light). A relay not
+   created yet gets it when you create it. The status of the integration
+   says how many relays are read only while none is listed, and which listed
+   relays still wait for "Update".
 
 The IPX800 wants the API key in the address of every request, over plain
 http: anyone who can watch your local network can read it, as with the
@@ -46,12 +53,15 @@ V4 is zone z of X-4FP e: n = 4 × (e − 1) + z).
 The IPX800 is read every 10 seconds by default (5 s at least). A value the
 IPX800 does not give (absent, a text, out of range) is not published: never
 as 0.
+On the V5, an X-THL whose own "measurement fault" IO is on publishes
+nothing until it clears, and the status names it.
 
 ## Relays: read only unless you list them
 
 Every relay is **read only** by default. To drive one from Gladys, list it in
 "Relays Gladys may drive", e.g. `R1, R3:light, X8R12-2` (`:light` makes it a
-light, otherwise a switch). A switch or a light obeys every "turn everything
+light, otherwise a switch), then click "Update" on that relay in Discover
+(step 5 above). A switch or a light obeys every "turn everything
 off" of Google, Alexa, the MCP and the scenes: never list a pump, a freezer,
 a ventilation, a heating, a door strike nor a valve. A relay you remove from
 the list is read only again at once: its commands are refused, and a
