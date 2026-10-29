@@ -10,6 +10,8 @@ the notes of the version's GitHub Release.
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-10-29
+
 ### Changed
 
 - Relays read only by default now say so: while no relay is listed, the
@@ -37,5 +39,6 @@ the notes of the version's GitHub Release.
   Comfort behind an option, off by default), X-THL sensors; "Test the
   connection".
 
-[Unreleased]: https://github.com/LM1LC3N7/gladys-ipx800/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/LM1LC3N7/gladys-ipx800/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/LM1LC3N7/gladys-ipx800/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/LM1LC3N7/gladys-ipx800/releases/tag/v0.1.1
