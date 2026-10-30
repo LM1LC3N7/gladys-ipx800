@@ -6,11 +6,12 @@
 
 import { createFakeGladys } from '@gladysassistant/integration-sdk/testing';
 import { testClock } from '../kit/index.mjs';
-import { IpxApp } from '../../src/app.js';
+import { IpxApp, macId } from '../../src/app.js';
+import { normalizeConfig } from '../../src/config.js';
 import { buildDevice } from '../../src/devices.js';
 import { registerHandlers } from '../../src/handlers.js';
 import { memoryStore } from '../../src/store.js';
-import { KEY, fakeIpx } from './fakeIpx.js';
+import { KEY, MAC, fakeIpx } from './fakeIpx.js';
 
 export const SELECTOR = 'ipx';
 export const SECOND = 1000;
@@ -37,6 +38,22 @@ export function created(kind, code, { relayKind, extra = [] } = {}) {
   return device;
 }
 
+/** The salt of /data in the tests (the `random` of the app). */
+export const SALT = '0123456789abcdef0123456789abcdef';
+
+/**
+ * A /data that says the devices belong to the IPX800 of `raw` (a V5 by its MAC, a V4 by
+ * its controller key): the state of an installation that read its IPX800 before.
+ */
+export function boundMemory(raw, mac = MAC) {
+  const config = normalizeConfig(raw);
+  const owner =
+    config.version === 'v5'
+      ? { kind: 'mac', id: macId(SALT, mac), at: config.key }
+      : { kind: 'address', id: config.key, at: config.key };
+  return { format: 2, salt: SALT, owner, key: config.key, guards: [], layout: {} };
+}
+
 /** Lets the pending promises settle (no timer involved). */
 export const settle = async (rounds = 30) => {
   for (let i = 0; i < rounds; i += 1) {
@@ -52,6 +69,7 @@ export async function setup({
   clock = testClock({ start: START }),
   world = fakeIpx({ version }),
   getConfig,
+  fresh = false,
 } = {}) {
   const cfg = config ?? CONFIG[version];
   const gladys = createFakeGladys({ selector: SELECTOR, config: cfg, devices });
@@ -61,6 +79,8 @@ export async function setup({
   const lines = [];
   const log = (...args) => lines.push(args.map(String).join(' '));
   const kept = store ?? memoryStore();
+  // Unless asked for a fresh install: the devices given belong to the IPX800 configured.
+  if (!fresh && kept.data === null) kept.data = boundMemory(cfg);
   const app = new IpxApp({
     gladys,
     logger: { lines, info: log, warn: log, error: log, debug: log },
@@ -69,7 +89,7 @@ export async function setup({
     monotonic: clock.monotonic,
     timers: clock.timers,
     store: kept,
-    random: () => '0123456789abcdef0123456789abcdef',
+    random: () => SALT,
   });
   registerHandlers(gladys, app, { error: log });
   const start = async (raw = cfg) => {

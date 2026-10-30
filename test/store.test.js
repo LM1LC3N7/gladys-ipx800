@@ -50,3 +50,26 @@ test('normalizeMemory: bounded, dates brought to now, guards checked, another ke
   assert.ok(memory.layout.r1);
   assert.deepEqual(normalizeMemory({ key: 'nope', guards: [{ code: 'fp1' }] }).guards, []);
 });
+
+test('normalizeMemory: a file of 0.1.2 names its controller as the owner, marked legacy', () => {
+  const key = 'c'.repeat(32);
+  const legacy = normalizeMemory({ key, guards: [] });
+  assert.deepEqual(legacy.owner, { kind: 'address', id: key, at: key, legacy: true });
+  assert.equal(legacy.format, 2);
+  assert.equal(normalizeMemory({ guards: [] }).owner, null, 'no key: no owner');
+  assert.equal(normalizeMemory(null).owner, null, 'a fresh install');
+  const owner = { kind: 'mac', id: 'd'.repeat(32), at: key };
+  assert.deepEqual(normalizeMemory({ format: 2, key, owner, salt: 'e'.repeat(32) }).owner, owner);
+  assert.equal(normalizeMemory({ format: 2, key, salt: 'e'.repeat(32) }).salt, 'e'.repeat(32));
+  for (const bad of [
+    { kind: 'serial', id: 'd'.repeat(32) },
+    { kind: 'mac', id: '00:04:a3:00:00:01' },
+    { kind: 'mac' },
+    'mac',
+  ]) {
+    assert.equal(normalizeMemory({ format: 2, key, owner: bad }).owner, null, JSON.stringify(bad));
+  }
+  assert.equal(normalizeMemory({ format: 2, key, salt: 'nope' }).salt, '');
+  // The owner survives another controller key (it is about the devices, not the address).
+  assert.deepEqual(normalizeMemory({ format: 2, key: 'f'.repeat(32), owner }).owner, owner);
+});

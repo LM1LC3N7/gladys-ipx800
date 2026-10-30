@@ -231,6 +231,33 @@ export function normalizeConfig(raw = {}) {
   };
 }
 
+/**
+ * Up to SLOTS IPX800 in one integration (Gladys runs one instance of it).
+ * The first one keeps the manifest keys of 0.1.2 (`version`, `host`, `port`,
+ * `api_key`, `relays`, `v4_extensions`); the n-th one has them with `_<n>`
+ * (`host_2`...), its port in the address (`192.168.1.51:8080`). The poll
+ * interval, the heating option and the language are shared.
+ */
+export const SLOTS = 3;
+
+const SLOT_KEYS = ['version', 'host', 'api_key', 'relays', 'v4_extensions'];
+const SHARED_KEYS = ['allow_heating_modes', 'poll_interval', 'language'];
+
+/** The configuration of one slot, in the shape of the first one (for normalizeConfig). */
+export function slotConfig(raw, slot) {
+  if (slot === 1) return raw ?? {};
+  const out = {};
+  for (const key of SLOT_KEYS) out[key] = raw?.[`${key}_${slot}`];
+  for (const key of SHARED_KEYS) out[key] = raw?.[key];
+  return out;
+}
+
+/** True when a slot after the first one has an address or a key typed. */
+export const slotTyped = (raw, slot) =>
+  slot === 1 ||
+  String(raw?.[`host_${slot}`] ?? '').trim() !== '' ||
+  String(raw?.[`api_key_${slot}`] ?? '').trim() !== '';
+
 /** True when the address and the key are there and valid. */
 export const isComplete = (config) =>
   config.host !== '' &&

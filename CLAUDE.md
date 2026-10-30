@@ -28,7 +28,9 @@ node scripts/cover.mjs cover.png          # the store cover (dev only)
 ```
 index.js              SDK wiring only: handlers registered before connect()
 src/handlers.js       the SDK handlers, shared with the tests
-src/app.js            IpxApp: lifecycle, rounds, guards, commands, status
+src/hub.js            IpxHub: up to 3 IpxApp (slots), one view of Gladys each
+src/app.js            IpxApp: one IPX800: lifecycle, rounds, identity (owner),
+                      guards, commands, status
 src/ipx/http.js       one HTTP request: bounded, deadline, cut, settles once closed
 src/ipx/client.js     the lane (one request at a time, priorities) and the API paths
 src/ipx/model.js      what the answers mean (pure): targets, values, writes
@@ -38,7 +40,8 @@ src/store.js          /data: pace, pause, refused key tag, V5 ids, guards
 src/config.js         DEFAULTS (mirror the manifest) + normalization, codes
 src/constants.js      API, modes, keys, limits, timings
 src/i18n.js           French and English texts
-test/helpers/         fake IPX (V4 and V5) on the virtual clock, app setup
+test/helpers/         fake IPX (V4 and V5) on the virtual clock and over real
+                      HTTP (httpIpx.js), app setup
 test/kit/             parts of the shared test kit (clocks, HTTP server)
 ```
 
@@ -52,8 +55,13 @@ error, a status or /data; success only after a read back.
 
 ## Rules
 
-- **External ids are forever** (`ext:<selector>:<kind>:<code>`), and so are
-  the feature keys and the manifest keys.
+- **External ids are forever** (`ext:<selector>:<kind>:<code>`, the slot n >= 2
+  as `ext:<selector>:ipx<n>:<kind>:<code>`), and so are the feature keys and
+  the manifest keys (`<key>_<n>` for the slots).
+- **A device never drives another IPX800**: the owner of each slot is in /data
+  (V5: salted hash of the MAC of `system/info`; V4: controller key); any
+  command, value, guard or Discover entry goes only when the IPX800 read is
+  the owner (see "Identity" in src/app.js and TODO.md).
 - **The container rootfs is read-only.** Write only under `/data`.
 - **Versions belong to the Release workflow**; `test/manifest.test.js` checks
   they agree.

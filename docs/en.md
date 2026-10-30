@@ -1,7 +1,7 @@
 # IPX800 for Gladys
 
-Brings a **GCE Electronics IPX800 V4 or V5** into Gladys through its local HTTP
-API: its relays, its digital inputs, the pilot-wire zones of its X-4FP
+Brings **up to three GCE Electronics IPX800 V4 or V5** into Gladys through
+their local HTTP API: their relays, its digital inputs, the pilot-wire zones of its X-4FP
 extensions and its X-THL sensors (temperature, humidity, luminosity).
 
 > Never tested with a real device: written from the GCE documentation of the
@@ -38,6 +38,60 @@ http: anyone who can watch your local network can read it, as with the
 IPX800's own apps. The key is kept by Gladys in its database, never shown
 again, sent only to the IPX800, and never written in the logs nor in the
 files of the integration.
+
+The model chosen must be the IPX800's: a V4 chosen as "V5" (or the reverse)
+is recognized, the status and "Test the connection" say so ("This IPX800 is
+a V4, but "Model" says V5"), and nothing is read nor sent until the model is
+fixed.
+
+## Several IPX800
+
+A V5 and a V4 in the same house (or two V5): keep the first one in the
+fields at the top, and put the other one in **"IPX800 #2"** (model, address
+with `:port` if needed, API key, its relays Gladys may drive, its V4
+extensions), a third one in "IPX800 #3". Each has its own devices in
+Discover ("IPX800 #2 · Relay 1 (R1)"), its own list of relays to drive and
+its own line in the status. The poll interval, the heating option and the
+language are shared.
+
+**Do not change the slot of an IPX800 to try another one**: the devices
+already created stay with their slot. To go from a V5 to a V4, add the V4
+as #2 instead of replacing the V5.
+
+## Each IPX800 keeps its devices
+
+A device created for one IPX800 never drives another one, even when you
+change the address, the port or the model of its slot. The integration
+keeps in `/data` which IPX800 the devices of each slot belong to: a **V5 by
+its MAC address** (read again at every read, kept as a salted fingerprint),
+a **V4 by its address and port** (its API gives no MAC address).
+
+When the IPX800 read is not theirs (another MAC address, another model, a V4
+at another address), then:
+
+- no command leaves for it, not even an Off;
+- the Offs kept for the old one are dropped;
+- none of its values is published onto these devices;
+- the Discover list is empty for that slot;
+- the status says so.
+
+Then put back the model and the address of their IPX800. If you **replaced**
+it (or changed the address of a V4), click **"Attach the devices" twice**
+(within a minute), choosing the slot: its devices then drive the IPX800
+read, with the relays listed for that slot. A slot without any device
+created simply takes the IPX800 it reads.
+
+When the MAC address of a V5 cannot be read, only Off and Frost protection
+leave, and only to the address it was last checked at. When a V5 starts, and
+after a failed read, its MAC address is read again before anything is sent:
+the Offs kept leave after that check, and an Off clicked waits for it 1.5 s
+at most, then leaves for the address it was last checked at.
+
+**Coming from 0.1.2**: the devices already created are attached to the
+IPX800 configured when you update, if the configuration did not change
+since. Otherwise, or when they hold codes that model does not have (an X-4FP
+zone of a V5 with "V4" chosen, say), nothing is sent to them. The status
+then asks to put their IPX800 back or to click "Attach the devices".
 
 ## What you get
 
@@ -94,7 +148,9 @@ the device, then creating it again, removes it, with its history.
 
 An Off or Frost protection is refused only when: the address or the API key
 is missing; the zone is not known (V4: not listed in the extensions; V5:
-never read, even before a restart); the value is not one of the six modes.
+never read, even before a restart); the value is not one of the six modes;
+the IPX800 is not the device's, or nothing tells (see "Each IPX800 keeps its
+devices").
 Off for a relay is refused when the relay is not listed. Clicked before the
 configuration is read from Gladys (the API key is kept there only, never in
 `/data`), it asks Gladys for it at once and waits 3 s; if it has not come,
@@ -134,11 +190,16 @@ A failed read pauses 10 s, 30 s, 1 min, 2 min then 5 min (one minute at
 least when the IPX800 answers 429 or 503), kept across restarts; Eco,
 Comfort and switching a relay on are refused until the pause ends. An API key
 refused by the IPX800 (401, 403) stops the reads until you change the key or
-"Test the connection" succeeds.
+"Test the connection" succeeds. While an IPX800 does not answer (or refuses
+the key, or is not of the model chosen), its devices leave the Discover list;
+a Scan does not bring them back. They come back at the first good read.
 
 ## Limits
 
 - X-8R, X-8D, X-24D, X-4FP and X-THL only; counters, X-4VR shutters,
   dimmers, X-PWM, virtual inputs and outputs are not in this version.
-- One IPX800 per integration.
+- Three IPX800 at most per integration.
+- A V4 is known by its address: after a change of address, "Attach the
+  devices" (two clicks) is needed; and another V4 put at the same address
+  cannot be told apart (the V4 API gives no MAC address).
 - http only (the IPX800 answers http on the local network).

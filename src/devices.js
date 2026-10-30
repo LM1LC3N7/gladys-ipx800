@@ -3,8 +3,12 @@
 //
 // `ext:<selector>:<kind>:<code>`: one Gladys device per relay, digital input,
 // pilot-wire zone and X-THL, keyed by the code of the target (`r3`,
-// `x8r12-3`, `fp5`, `x4fp7-2`, `xthl9`: see src/config.js). The kinds and
-// the feature keys are published forever: never rename them.
+// `x8r12-3`, `fp5`, `x4fp7-2`, `xthl9`: see src/config.js). The IPX800 n
+// of the configuration (n >= 2) puts `ipx<n>:` before the kind
+// (`ext:<selector>:ipx2:relay:r3`); the first one keeps the ids of 0.1.2. The
+// kinds, the slot prefix and the feature keys are published forever: never
+// rename them. Which IPX800 a slot's devices belong to is kept in /data (the
+// owner, see src/app.js), never in the ids.
 //
 // Relays: read only (`readonly`, a state nobody can drive) unless the user
 // declared them in "Relays Gladys may drive", as a switch (`switch`) or a
@@ -27,7 +31,7 @@ import {
   DEVICE_FEATURE_UNITS as U,
 } from '@gladysassistant/integration-sdk';
 import { FEATURES as F, KINDS, PILOT, RANGES } from './constants.js';
-import { FEATURE_NAMES, targetName, word } from './i18n.js';
+import { FEATURE_NAMES, slotName, targetName, word } from './i18n.js';
 
 const KIND_LIST = Object.values(KINDS);
 
@@ -158,19 +162,33 @@ const DECLARED = [
 
 export const idsOf = (gladys, kind, code) => gladys.externalIds(kind, code);
 
+/** What a slot puts before the kind in its ids: '' for the first one, `ipx<n>:` after. */
+export const slotPrefix = (slot = 1) => (slot === 1 ? '' : `ipx${slot}:`);
+
 const ID = /:(relay|input|pilot-wire|thl):([a-z0-9-]{2,24})(?::([a-z]{1,20}))?$/;
 
-/** The kind, code and feature key of one of our external ids; undefined otherwise. */
-export function parseExternalId(externalId, selector) {
-  if (typeof externalId !== 'string' || !externalId.startsWith(`ext:${selector}:`)) {
+/** The kind, code and feature key of one of our external ids of `slot`; undefined otherwise. */
+export function parseExternalId(externalId, selector, slot = 1) {
+  const head = `ext:${selector}:${slotPrefix(slot)}`;
+  if (typeof externalId !== 'string' || !externalId.startsWith(head)) {
     return undefined;
   }
   const match = ID.exec(externalId);
   if (!match || !KIND_LIST.includes(match[1])) return undefined;
-  if (externalId !== `ext:${selector}:${match[1]}:${match[2]}${match[3] ? `:${match[3]}` : ''}`) {
+  if (externalId !== `${head}${match[1]}:${match[2]}${match[3] ? `:${match[3]}` : ''}`) {
     return undefined;
   }
   return { kind: match[1], code: match[2], key: match[3] };
+}
+
+/** The slot of one of our external ids (`ext:<selector>:ipx2:...` -> 2); 1 otherwise. */
+export function slotOf(externalId, selector) {
+  const match = /^ipx([2-9]):/.exec(
+    typeof externalId === 'string' && externalId.startsWith(`ext:${selector}:`)
+      ? externalId.slice(`ext:${selector}:`.length)
+      : '',
+  );
+  return match ? Number(match[1]) : 1;
 }
 
 /**
@@ -208,10 +226,10 @@ export function targetStates(target, keys) {
  * The Gladys device of a target. `created`: the device already created in
  * Gladys, whose name and features are kept.
  */
-export function buildDevice(gladys, target, { language, relayKind, created }) {
+export function buildDevice(gladys, target, { language, relayKind, created, slot = 1 }) {
   const ids = idsOf(gladys, target.kind, target.code);
   const built = {
-    name: created?.name ?? word(targetName(target), language),
+    name: created?.name ?? word(slotName(slot, targetName(target)), language),
     external_id: ids.device,
     model: modelOf(target.code),
     should_poll: false,

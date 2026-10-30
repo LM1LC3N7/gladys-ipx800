@@ -194,10 +194,37 @@ export class IpxClient {
     }
   }
 
+  // --- The other model -----------------------------------------------------------
+
+  /**
+   * After a round that failed with an answer that is not of the model configured: does the
+   * IPX answer the API of the other model? One read (V4 `Get=R`, V5 `system/ipx`), with the
+   * same key, to the same address. Resolves 'v4', 'v5' or undefined.
+   */
+  async otherModel(priority = PRIORITY.READ, hooks) {
+    const other = this.version === 'v4' ? 'v5' : 'v4';
+    const path =
+      other === 'v4'
+        ? `${API.v4.path}?${API.v4.keyParam}=${encodeURIComponent(this.apiKey)}&Get=R`
+        : this.v5Path('system/ipx', 'option=filter_id');
+    try {
+      const json = await this.json(priority, { method: 'GET', path }, hooks);
+      if (other === 'v4') return json?.status === 'Success' ? 'v4' : undefined;
+      return json && typeof json === 'object' && Array.isArray(json.ioRelays_id) ? 'v5' : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
   // --- V5 ---------------------------------------------------------------------
 
   v5Path(path, query = '') {
     return `${API.v5.base}${path}?${query ? `${query}&` : ''}${API.v5.keyParam}=${encodeURIComponent(this.apiKey)}`;
+  }
+
+  /** `system/info`: the MAC address (`macAdress`), as pypx800v5 reads it. */
+  v5Info(priority = PRIORITY.READ, hooks) {
+    return this.json(priority, { method: 'GET', path: this.v5Path('system/info') }, hooks);
   }
 
   v5Ipx(priority = PRIORITY.READ, hooks) {

@@ -7,12 +7,14 @@
 // requests in flight at once (`peak`): the lane must keep it at 1.
 //
 // V4: GET /api/xdevices.json?key=<key>&Get=all | SetR=NN | ClearR=NN | SetFPNN=c
-// V5: GET system/ipx, ebx/<type>, core/io, core/ana; PUT core/io/<id> { on }
+// V5: GET system/info, system/ipx, ebx/<type>, core/io, core/ana; PUT core/io/<id> { on }
 // -----------------------------------------------------------------------------
 
 import { IpxError } from '../../src/ipx/http.js';
 
 export const KEY = 'S3cretKey-42';
+/** The MAC address of the fake V5 (`system/info`). */
+export const MAC = '00:04:a3:5e:00:01';
 
 const FP_TEXT = ['Confort', 'Eco', 'Hors Gel', 'Arret', 'Confort -1', 'Confort -2'];
 
@@ -55,10 +57,15 @@ const FP_FIELDS = [
   'ioComfort_2_id',
 ];
 
-export function fakeIpx({ version = 'v4', key = KEY } = {}) {
+export function fakeIpx(options = {}) {
+  const { version = 'v4', key = KEY } = options;
+  // `mac: undefined` given: a V5 whose `system/info` answers no MAC (404).
+  const mac = 'mac' in options ? options.mac : MAC;
   const world = {
     version,
     key,
+    /** V5 `system/info` `macAdress`; undefined: a 404 (no MAC readable). */
+    mac,
     requests: [],
     inFlight: 0,
     peak: 0,
@@ -192,6 +199,11 @@ function respond(world, record) {
 
 function v4(world, params) {
   const ok = { product: 'IPX800_V4', status: 'Success' };
+  if (params.get('Get') === 'R') {
+    const out = { ...ok };
+    for (let n = 1; n <= 56; n += 1) out[`R${n}`] = world.R[n];
+    return json(out);
+  }
   if (params.get('Get') === 'all') {
     const out = { ...ok };
     for (let n = 1; n <= 56; n += 1) {
@@ -225,6 +237,11 @@ function v4(world, params) {
 function v5(world, method, path, body) {
   const layout = world.layout;
   if (method === 'GET') {
+    if (path === 'system/info') {
+      return world.mac === undefined
+        ? json({}, 404)
+        : json({ macAdress: world.mac, hostName: 'IPX800V5' });
+    }
     if (path === 'system/ipx') return json(layout.ipx);
     const ebx = /^ebx\/(\w+)$/.exec(path);
     if (ebx) return json(layout[ebx[1]] ?? []);

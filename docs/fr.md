@@ -1,7 +1,7 @@
 # IPX800 pour Gladys
 
-Amène dans Gladys un **IPX800 V4 ou V5 de GCE Electronics** par son API HTTP
-locale : ses relais, ses entrées, les zones de fil pilote de ses extensions
+Amène dans Gladys **jusqu’à trois IPX800 V4 ou V5 de GCE Electronics** par
+leur API HTTP locale : leurs relais, ses entrées, les zones de fil pilote de ses extensions
 X-4FP et ses capteurs X-THL (température, humidité, luminosité).
 
 > Jamais testé avec un vrai appareil : écrit d’après la documentation GCE de
@@ -40,6 +40,64 @@ qui peut écouter votre réseau local peut la lire, comme avec les applis de
 l’IPX800. La clé est gardée par Gladys dans sa base, jamais réaffichée,
 envoyée seulement à l’IPX800, et jamais écrite dans les journaux ni dans les
 fichiers de l’intégration.
+
+Le modèle choisi doit être celui de l’IPX800 : une V4 choisie « V5 » (ou
+l’inverse) est reconnue, l’état et « Tester la connexion » le disent
+(« Cet IPX800 est une V4, mais « Modèle » indique V5 »), et rien n’est lu
+ni envoyé tant que le modèle n’est pas corrigé.
+
+## Plusieurs IPX800
+
+Une V5 et une V4 dans la même maison (ou deux V5) : gardez le premier dans
+les champs du haut, et mettez l’autre dans **« IPX800 n°2 »** (modèle,
+adresse avec `:port` si besoin, clé d’API, ses relais pilotables, ses
+extensions V4), un troisième dans « IPX800 n°3 ». Chacun a ses propres
+appareils dans Découverte (« IPX800 n°2 · Relais 1 (R1) »), sa liste de
+relais pilotables et son état sur sa ligne. L’intervalle de lecture,
+l’option de chauffage et la langue sont communs.
+
+**Ne changez pas un emplacement d’IPX800 pour en essayer un autre** : les
+appareils déjà créés restent avec leur emplacement. Pour passer d’une V5 à
+une V4, ajoutez la V4 en n°2 au lieu de remplacer la V5.
+
+## Chaque IPX800 garde ses appareils
+
+Un appareil créé pour un IPX800 ne commande jamais un autre IPX800, même si
+vous changez l’adresse, le port ou le modèle de son emplacement.
+L’intégration retient, dans `/data`, à quel IPX800 appartiennent les
+appareils de chaque emplacement : une **V5 par son adresse MAC** (relue à
+chaque lecture, gardée sous forme d’empreinte salée), une **V4 par son
+adresse et son port** (son API ne donne pas d’adresse MAC).
+
+Si l’IPX800 lu n’est pas le leur (autre adresse MAC, autre modèle, V4 à
+une autre adresse), alors :
+
+- aucune commande ne part vers lui, pas même un Arrêt ;
+- les arrêts gardés pour l’ancien sont abandonnés ;
+- aucune de ses valeurs n’est publiée sur ces appareils ;
+- la Découverte est vide pour cet emplacement ;
+- l’état le dit.
+
+Remettez alors le modèle et l’adresse de leur IPX800. Si vous l’avez
+**remplacé** (ou si vous avez changé l’adresse d’une V4), cliquez **deux
+fois** « Rattacher les appareils » (dans la minute), en choisissant
+l’emplacement : ses appareils pilotent alors l’IPX800 lu, avec la liste de
+relais pilotables de l’emplacement. Un emplacement sans aucun appareil créé
+prend simplement l’IPX800 qu’il lit.
+
+Quand l’adresse MAC d’une V5 ne peut pas être lue, seuls Arrêt et Hors-gel
+partent, et seulement vers l’adresse où elle a été vérifiée en dernier.
+Au démarrage d’une V5, et après une lecture en échec, l’adresse MAC est
+relue avant tout envoi : les arrêts gardés partent après cette vérification,
+et un Arrêt cliqué l’attend 1,5 s au plus, puis part vers l’adresse où elle
+a été vérifiée en dernier.
+
+**Depuis la version 0.1.2** : les appareils existants sont rattachés à
+l’IPX800 configuré quand vous mettez à jour, si la configuration n’a pas
+changé depuis. Sinon, ou s’ils ont des codes que ce modèle n’a pas (par ex.
+une zone X-4FP de V5 avec « V4 » choisi), rien ne leur est envoyé. L’état
+demande alors de remettre leur IPX800 ou de cliquer « Rattacher les
+appareils ».
 
 ## Ce que vous obtenez
 
@@ -101,7 +159,9 @@ recréation, l’enlève, avec son historique.
 
 Un Arrêt ou un Hors-gel n’est refusé que si : l’adresse ou la clé d’API
 manque ; la zone n’est pas connue (V4 : absente des extensions ; V5 : jamais
-lue, même avant un redémarrage) ; la valeur n’est pas l’un des six modes.
+lue, même avant un redémarrage) ; la valeur n’est pas l’un des six modes ;
+l’IPX800 n’est pas celui de l’appareil, ou rien ne permet de le savoir
+(voir « Chaque IPX800 garde ses appareils »).
 L’extinction d’un relais est refusée si le relais n’est pas listé. Cliqué
 avant que la configuration soit lue dans Gladys (la clé d’API n’est gardée
 que là, jamais dans `/data`), il la demande aussitôt à Gladys et attend 3 s ;
@@ -145,11 +205,18 @@ minute au moins quand l’IPX800 répond 429 ou 503), pause gardée au
 redémarrage ; Éco, Confort et l’allumage d’un relais sont refusés jusqu’à la
 fin de la pause. Une clé d’API refusée par l’IPX800 (401, 403) arrête les lectures
 jusqu’à ce que vous changiez la clé ou que « Tester la connexion » aboutisse.
+Tant qu’un IPX800 ne répond pas (ou refuse la clé, ou n’est pas du bon
+modèle), ses appareils quittent la Découverte ; un Scan ne les y remet
+pas. Ils reviennent à la première lecture réussie.
 
 ## Limites
 
 - X-8R, X-8D, X-24D, X-4FP et X-THL seulement ; compteurs, volets X-4VR,
   variateurs, X-PWM, entrées et sorties virtuelles ne sont pas dans cette
   version.
-- Un IPX800 par intégration.
+- Trois IPX800 au plus par intégration.
+- Une V4 est reconnue par son adresse : après un changement d’adresse,
+  « Rattacher les appareils » (deux clics) est nécessaire ; et une autre V4
+  mise à la même adresse ne se distingue pas (l’API V4 ne donne pas
+  d’adresse MAC).
 - http seulement (l’IPX800 répond en http sur le réseau local).

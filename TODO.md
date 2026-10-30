@@ -19,6 +19,13 @@ to date at the end of every milestone.
       without anything saying so. Next patch: status hints, guide steps,
       read-only feature name; V5 API checked against cce66's GCE tools (see
       "V5 API against cce66's tools").
+- [x] **Second real device** (2026-10-29, forum t/11448 #4): cce66, V5
+      relays work both ways (< 1 s). With the address and key of his V4 typed
+      in the same configuration, the devices made for the V5 drove the V4's
+      relays and Discover showed nothing new (reproduced: same ids, the V4
+      targets merged into the V5's devices). Fixed in the next patch:
+      identity of the IPX800 (owner), up to 3 IPX800, wrong model said,
+      Discover only from what is read, `deviceDeleted` republishes.
 - [ ] **Next patch — review r4 leftovers**: at 900 ms per request, 5 zones
       clicked at once are all Off at 4.56 s but the last acks come back
       without confirmation (one request at a time); say in the docs that a
@@ -102,25 +109,30 @@ ebx/<type>/<id>` with arrays of `"on"`/`"off"`/`"toggle"`); whether a
 Only the V4 and V5 are in this integration (V3, Eco-Devices, X-Pool: other
 APIs, other modules, not planned here).
 
-1. V5: the answer of `GET /api/system/ipx?option=filter_id&ApiKey=…` (ids
-   only, no key): are the fields `ioRelays_id`, `ioRelayState_id`,
-   `ioDInput_id`?
-2. V5: the answer of `GET /api/ebx/x4fp?option=filter_id` and
-   `GET /api/ebx/x8r?option=filter_id` (`ioOutputState_id` there?), and of
-   `ebx/xthl` if he has one (`ioFault_id`?).
-3. V5 X-4FP: in the Gladys status, does "Mode unreadable (several modes on)"
-   ever show? Off then Frost protection from Gladys: does the IPX page show
-   only the last mode on for that zone?
-4. V5 relays: after listing R1, R2 and "Update" in Discovery, does switching
-   from Gladys work both ways, and does a change from the IPX page show in
-   Gladys within the interval?
-5. V5 `core/ana`: is an X-THL temperature `21.5` or `215` (with
-   `nbdecimal` 1)?
-6. V4 (if he tests one): what a wrong API key answers (401, or 200 with
-   `"status": "Error"`), and the texts of `FP<e> Zone <z>` in `Get=all`
-   (`Arret` or `Arrêt`, `Hors Gel`...).
-7. The status: did the new hints (relays read only, waiting for "Update")
-   say enough, in his own words?
+8. V4 (2026-10-30): which model was chosen when the V4's address was typed
+   (the relays of the V4 were driven, so most likely "V4"); after the
+   update, the status of each IPX800 in its own slot.
+9. V5: the answer of `GET /api/system/info` (is the field `macAdress`?).
+
+10. V5: the answer of `GET /api/system/ipx?option=filter_id&ApiKey=…` (ids
+    only, no key): are the fields `ioRelays_id`, `ioRelayState_id`,
+    `ioDInput_id`?
+11. V5: the answer of `GET /api/ebx/x4fp?option=filter_id` and
+    `GET /api/ebx/x8r?option=filter_id` (`ioOutputState_id` there?), and of
+    `ebx/xthl` if he has one (`ioFault_id`?).
+12. V5 X-4FP: in the Gladys status, does "Mode unreadable (several modes on)"
+    ever show? Off then Frost protection from Gladys: does the IPX page show
+    only the last mode on for that zone?
+13. V5 relays: after listing R1, R2 and "Update" in Discovery, does switching
+    from Gladys work both ways, and does a change from the IPX page show in
+    Gladys within the interval?
+14. V5 `core/ana`: is an X-THL temperature `21.5` or `215` (with
+    `nbdecimal` 1)?
+15. V4 (if he tests one): what a wrong API key answers (401, or 200 with
+    `"status": "Error"`), and the texts of `FP<e> Zone <z>` in `Get=all`
+    (`Arret` or `Arrêt`, `Hors Gel`...).
+16. The status: did the new hints (relays read only, waiting for "Update")
+    say enough, in his own words?
 
 ## Decisions
 
@@ -312,6 +324,50 @@ APIs, other modules, not planned here).
 - `npm test` runs with `--test-timeout=60000` (a stuck test never holds a
   runner).
 
-## Next patch (review r2, 57e568d)
+## Decisions after cce66's V4 (2026-10-30)
 
-- A relay removed from the list, its device deleted then recreated at once, gets back a switch that does nothing until the next read (10 s) or a Scan: `deviceDeleted` does not republish Discovery. Call `publishDevices()` there, or tell users to click Scan first.
+- **Identity (owner)**: the ids hold no trace of the IPX800 (the first slot
+  keeps those of 0.1.2, scenes and all), so each slot's /data keeps the
+  owner of its devices: a V5 by `macId(salt, MAC)` (the MAC of
+  `GET /api/system/info` `macAdress`, as pypx800v5 1.5.0 reads it; never the
+  MAC itself), a V4 by its controller key (model, address, port: the V4 API
+  gives no MAC; `Get=all` holds none). Verdicts: `same`; `pending` (V5 at
+  start and after a failed round: MAC read before an Off, 1.5 s at most for
+  a click, then to the address last checked); `unverified` (MAC unreadable:
+  Off / Frost protection only, at the address last checked; never a
+  downgrade to the address); `different` (no command at all, guards
+  dropped, no value published, Discover empty, status); `unbound` (devices
+  whose owner is unknown: /data lost, or 0.1.2 devices that cannot be the
+  configured model's; Off allowed only while /data is unreadable). A slot
+  without devices takes the IPX800 read. The MAC is read every V5 round
+  (one more request); read backs within 20 s of a command do not re-read it
+  (a box replaced within 20 s is not a case).
+- **Migration from 0.1.2**: a file without `format` makes its controller key
+  the owner, marked `legacy`; kept when the configuration still has that key
+  and no created device holds a code the model cannot have (V5 only:
+  `x8r|x8d|x24d|x4fp|xthl<id>`; V4 only: `fp`, `thl`, `r9+`, `d9+`).
+  Otherwise "Attach the devices". Known limit: 0.1.2 relays made on a V5,
+  then a V4 typed in the same slot before the update, relays only: they stay
+  with that V4 (nothing tells them apart), as in 0.1.2.
+- **Attach the devices**: an action with the slot as a select field, two
+  clicks within a minute on the same IPX800 read; refused when nothing was
+  read, the MAC is unreadable or /data unreadable.
+- **Several IPX800**: one integration, up to 3 slots (as air-Q, Remootio):
+  `version_n`, `host_n` (port in the address), `api_key_n`, `relays_n`,
+  `v4_extensions_n`; poll interval, heating option and language shared.
+  Separate integrations were not chosen: Gladys installs one per store
+  entry, and two V5 would need the same image twice. `src/hub.js` runs one
+  IpxApp per slot (own lane, /data file `/data/ipx800-state-<n>.json`,
+  guards) behind a view of Gladys (ids `ipx<n>:`, its devices, status and
+  Discover put together, one state publisher for the 300 states a minute).
+  A slot is used when an address or key is typed, or when it has devices.
+- **Wrong model**: a round failing with an answer (404, not JSON, 401,
+  `not_success`, size) asks once the API of the other model (V4 `Get=R`,
+  V5 `system/ipx?option=filter_id`) with the same key; an answer: status
+  "This IPX800 is a V4, but Model says V5", pause as a failure, no key
+  refused, Discover empty. Not switched by itself (the owner and the
+  controller key depend on the model).
+- **Discover**: only the targets read by a round of this session, no failure
+  since, the owner read; else an empty list (published too, the old one
+  would stay otherwise). The created devices no longer added as they are.
+  `deviceDeleted` republishes (r2 m1).

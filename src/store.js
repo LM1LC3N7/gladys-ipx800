@@ -2,6 +2,10 @@
 // What must survive a restart, in /data (the only writable place of the
 // container), bounded and checked when read back:
 //   - the time of the last read attempt (a restart never reads sooner);
+//   - the owner: the IPX800 the devices of this slot were created for (a
+//     salted hash of its MAC address, or the controller key of a V4 that
+//     gives none), whatever the controller configured now; a file of 0.1.2
+//     (no `format`) makes its controller key the owner, marked `legacy`;
 //   - for the controller it belongs to (a hash of its version, address and
 //     port), the pause after failed reads, the refused API key (a salted
 //     8-bit tag, never the key), the V5 ids of the relays and pilot-wire
@@ -16,6 +20,11 @@ import { open, readFile, rename } from 'node:fs/promises';
 import { LIMITS, TIMINGS } from './constants.js';
 
 export const STATE_FILE = '/data/ipx800-state.json';
+/** The file of a slot: the first one keeps the name of 0.1.2. */
+export const stateFile = (slot = 1) =>
+  slot === 1 ? STATE_FILE : `/data/ipx800-state-${Number(slot)}.json`;
+/** The format of the file written since 0.1.3 (a file without it is one of 0.1.2). */
+export const FORMAT = 2;
 /** A larger file is not ours: refused (read bounded). */
 const MAX_STATE_BYTES = 256 * 1024;
 
@@ -100,9 +109,22 @@ function guardOf(raw) {
   };
 }
 
+const HEX32 = /^[0-9a-f]{32}$/;
+
+/** An owner read back: `{ kind: 'mac' | 'address', id, at, legacy? }`; null when not valid. */
+function ownerOf(raw) {
+  if (!raw || typeof raw !== 'object' || !['mac', 'address'].includes(raw.kind)) return null;
+  if (typeof raw.id !== 'string' || !HEX32.test(raw.id)) return null;
+  const at = typeof raw.at === 'string' && HEX32.test(raw.at) ? raw.at : '';
+  return { kind: raw.kind, id: raw.id, at, ...(raw.legacy === true ? { legacy: true } : {}) };
+}
+
 /** An empty memory. */
 export const emptyMemory = () => ({
+  format: FORMAT,
   lastAttemptAt: null,
+  salt: '',
+  owner: null,
   key: '',
   pause: null,
   refused: null,
@@ -119,7 +141,15 @@ export function normalizeMemory(raw, now = Date.now()) {
   const memory = emptyMemory();
   const lastAttemptAt = time(raw?.lastAttemptAt);
   memory.lastAttemptAt = lastAttemptAt === undefined ? null : Math.min(lastAttemptAt, now);
-  const key = typeof raw?.key === 'string' && /^[0-9a-f]{32}$/.test(raw.key) ? raw.key : '';
+  const key = typeof raw?.key === 'string' && HEX32.test(raw.key) ? raw.key : '';
+  memory.salt = typeof raw?.salt === 'string' && HEX32.test(raw.salt) ? raw.salt : '';
+  if (raw && typeof raw === 'object' && raw.format === undefined) {
+    // Written by 0.1.2: its devices were made for the controller it read last, as far as
+    // the file knows (checked against the devices before any command, see src/app.js).
+    memory.owner = key ? { kind: 'address', id: key, at: key, legacy: true } : null;
+  } else {
+    memory.owner = ownerOf(raw?.owner);
+  }
   if (!key) {
     return memory;
   }
@@ -136,7 +166,7 @@ export function normalizeMemory(raw, now = Date.now()) {
   if (
     r &&
     typeof r.salt === 'string' &&
-    /^[0-9a-f]{32}$/.test(r.salt) &&
+    HEX32.test(r.salt) &&
     Number.isInteger(r.tag) &&
     r.tag >= 0 &&
     r.tag < 256

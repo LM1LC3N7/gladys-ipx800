@@ -180,3 +180,27 @@ test('the published features: supported options (none here) and units from the c
     }
   }
 });
+
+test('the slots of the other IPX800: every key of slotConfig in the manifest, the keys secret', async () => {
+  const { SLOTS, slotConfig } = await import('../src/config.js');
+  const fields = Object.fromEntries(manifest.config_schema.map((f) => [f.key, f]));
+  for (let slot = 2; slot <= SLOTS; slot += 1) {
+    const raw = Object.fromEntries(Object.keys(fields).map((key) => [key, key]));
+    for (const [name, from] of Object.entries(slotConfig(raw, slot))) {
+      assert.ok(fields[from], `${name} of slot ${slot} (${from}) not in the manifest`);
+    }
+    assert.equal(fields[`api_key_${slot}`].type, 'secret');
+    assert.equal(fields[`api_key_${slot}`].default, undefined);
+    assert.equal(fields[`host_${slot}`].required, false);
+    assert.deepEqual(
+      fields[`version_${slot}`].options.map((o) => o.value),
+      VERSIONS,
+    );
+    assert.match(fields[`relays_${slot}`].description.en, /never list a pump/);
+  }
+  const attach = manifest.actions.find((a) => a.key === ACTIONS.ATTACH);
+  assert.deepEqual(
+    attach.fields[0].options.map((o) => o.value),
+    Array.from({ length: SLOTS }, (_, i) => String(i + 1)),
+  );
+});

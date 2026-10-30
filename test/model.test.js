@@ -103,3 +103,23 @@ test('V5: ids kept in /data are checked when read back', () => {
     command: 100,
   });
 });
+
+test('parseMac: the MAC of system/info, normalized; anything else is unreadable, never another IPX', async () => {
+  const { parseMac } = await import('../src/ipx/model.js');
+  assert.equal(parseMac({ macAdress: '00:04:A3:12:34:56' }), '00:04:a3:12:34:56');
+  assert.equal(parseMac({ macAddress: '00-04-a3-12-34-56' }), '00:04:a3:12:34:56');
+  assert.equal(parseMac({ macAdress: '0004a3123456' }), '00:04:a3:12:34:56');
+  for (const bad of [
+    {},
+    null,
+    { macAdress: '' },
+    { macAdress: '00:00:00:00:00:00' },
+    { macAdress: 'ff:ff:ff:ff:ff:ff' },
+    { macAdress: '00:04:a3:12:34' },
+    { macAdress: 42 },
+    { macAdress: '00:04:a3:12:34:5g' },
+    JSON.parse('{"__proto__": {"macAdress": "00:04:a3:12:34:56"}}'),
+  ]) {
+    assert.equal(parseMac(bad), undefined, JSON.stringify(bad));
+  }
+});

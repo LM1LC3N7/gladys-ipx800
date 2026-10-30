@@ -97,6 +97,10 @@ export function targetName(target) {
   }
 }
 
+/** "IPX800 #2 · Relay 3 (R3)" for the IPX800 n >= 2 of the configuration; the name alone for the first. */
+export const slotName = (slot, name) =>
+  slot === 1 ? name : both(`IPX800 #${slot} · ${name.en}`, `IPX800 n°${slot} · ${name.fr}`);
+
 /** The reason of a failure, in each language. */
 export function reasonOf(err) {
   const status = err?.status ? ` (HTTP ${err.status})` : '';
@@ -239,6 +243,78 @@ export const T = {
     'The state cannot be written to /data: heating modes refused until it can.',
     'L’état ne peut pas être écrit dans /data : modes de chauffe refusés tant que c’est le cas.',
   ),
+  wrongModelReason: (configured, other) =>
+    both(
+      `it answers as an IPX800 ${other.toUpperCase()}, ${configured.toUpperCase()} is chosen`,
+      `il répond comme un IPX800 ${other.toUpperCase()}, ${configured.toUpperCase()} est choisi`,
+    ),
+  wrongModel: (configured, other) =>
+    both(
+      `This IPX800 is a ${other.toUpperCase()}, but "Model" says ${configured.toUpperCase()}: choose ${other.toUpperCase()} in Configuration → Model (nothing is read nor sent meanwhile).`,
+      `Cet IPX800 est une ${other.toUpperCase()}, mais « Modèle » indique ${configured.toUpperCase()} : choisissez ${other.toUpperCase()} dans Configuration → Modèle (rien n’est lu ni envoyé d’ici là).`,
+    ),
+  identityUnreadable: both(
+    'Its MAC address could not be read this time: only Off and Frost protection are sent until it is.',
+    'Son adresse MAC n’a pas pu être lue cette fois : seuls Arrêt et Hors-gel sont envoyés d’ici là.',
+  ),
+  identityUnreadableNew: both(
+    'At this new address, its MAC address could not be read: nothing is sent to the devices until it is.',
+    'À cette nouvelle adresse, son adresse MAC n’a pas pu être lue : rien n’est envoyé aux appareils d’ici là.',
+  ),
+  otherIpx: (slot, version, label) => {
+    const v = version === 'v4' ? 'V4' : 'V5';
+    const mac = label ? ` (MAC …${label})` : '';
+    return both(
+      `The IPX800 ${v}${mac} at this address is not the one the devices of IPX800 #${slot} were created for: none of their commands is sent, and their Offs kept are dropped. Put back the model and the address of their IPX800 (another IPX800 goes in its own slot, see the guide), or, if you replaced it, click "Attach the devices" twice.`,
+      `L’IPX800 ${v}${mac} à cette adresse n’est pas celui pour lequel les appareils de l’IPX800 n°${slot} ont été créés : aucune de leurs commandes n’est envoyée, et leurs arrêts gardés sont abandonnés. Remettez le modèle et l’adresse de leur IPX800 (un autre IPX800 va dans son propre emplacement, voir le guide), ou, si vous l’avez remplacé, cliquez deux fois « Rattacher les appareils ».`,
+    );
+  },
+  notAttached: (slot) =>
+    both(
+      `The devices of IPX800 #${slot} are not known to belong to the IPX800 read (the state in /data was lost): none of their commands is sent. If they are its own, click "Attach the devices" twice.`,
+      `Rien ne dit que les appareils de l’IPX800 n°${slot} appartiennent à l’IPX800 lu (l’état de /data a été perdu) : aucune de leurs commandes n’est envoyée. Si ce sont les siens, cliquez deux fois « Rattacher les appareils ».`,
+    ),
+  legacyNotAttached: (slot) =>
+    both(
+      `The devices of IPX800 #${slot} were created with an earlier version for another model of IPX800: none of their commands is sent. Put back the model and the address of their IPX800 (another IPX800 goes in its own slot, see the guide), or, if they are this one's, click "Attach the devices" twice.`,
+      `Les appareils de l’IPX800 n°${slot} ont été créés avec une version précédente pour un autre modèle d’IPX800 : aucune de leurs commandes n’est envoyée. Remettez le modèle et l’adresse de leur IPX800 (un autre IPX800 va dans son propre emplacement, voir le guide), ou, si ce sont les siens, cliquez deux fois « Rattacher les appareils ».`,
+    ),
+  ownerUnreadable: both(
+    'The state in /data cannot be read: which IPX800 the devices belong to is unknown, only Off and Frost protection are sent until it can.',
+    'L’état de /data ne peut pas être lu : on ne sait pas à quel IPX800 appartiennent les appareils, seuls Arrêt et Hors-gel sont envoyés d’ici là.',
+  ),
+  attach: {
+    notRead: both(
+      'No IPX800 read right now: click "Test the connection" first.',
+      'Aucun IPX800 lu en ce moment : cliquez d’abord « Tester la connexion ».',
+    ),
+    already: (slot) =>
+      both(
+        `The devices of IPX800 #${slot} already belong to the IPX800 read: nothing to do.`,
+        `Les appareils de l’IPX800 n°${slot} appartiennent déjà à l’IPX800 lu : rien à faire.`,
+      ),
+    unreadable: both(
+      'The MAC address of this IPX800 could not be read: try again after the next read.',
+      'L’adresse MAC de cet IPX800 n’a pas pu être lue : réessayez après la prochaine lecture.',
+    ),
+    confirm: (slot, version, label, count) => {
+      const v = version === 'v4' ? 'V4' : 'V5';
+      const mac = label ? ` (MAC …${label})` : '';
+      return both(
+        `Click again within a minute to attach the ${count} device(s) of IPX800 #${slot} to the IPX800 ${v}${mac} read now: its relays listed in the configuration will obey them.`,
+        `Cliquez à nouveau dans la minute pour rattacher les ${count} appareil(s) de l’IPX800 n°${slot} à l’IPX800 ${v}${mac} lu en ce moment : ses relais listés dans la configuration leur obéiront.`,
+      );
+    },
+    done: (slot, count) =>
+      both(
+        `Done: the ${count} device(s) of IPX800 #${slot} belong to the IPX800 read.`,
+        `C’est fait : les ${count} appareil(s) de l’IPX800 n°${slot} appartiennent à l’IPX800 lu.`,
+      ),
+    noSlot: both(
+      'Choose an IPX800 of the configuration.',
+      'Choisissez un IPX800 de la configuration.',
+    ),
+  },
   test: {
     busy: both(
       'A read is already running: try again in a moment.',
@@ -338,6 +414,30 @@ export const ERRORS = {
     both(
       `Sent, but the IPX800 reads ${read.en} (asked: ${wanted.en}): not applied yet, read again in a few seconds.`,
       `Envoyée, mais l’IPX800 lit ${read.fr} (demandé : ${wanted.fr}) : pas encore appliquée, relue dans quelques secondes.`,
+    ),
+  otherIpx: (slot) =>
+    both(
+      `The IPX800 at this address is not the one this device was created for (IPX800 #${slot}): nothing was sent.`,
+      `L’IPX800 à cette adresse n’est pas celui pour lequel cet appareil a été créé (IPX800 n°${slot}) : rien n’a été envoyé.`,
+    ),
+  wrongModel: (configured, other) =>
+    both(
+      `This IPX800 is a ${other.toUpperCase()}, but "Model" says ${configured.toUpperCase()}: nothing was sent.`,
+      `Cet IPX800 est une ${other.toUpperCase()}, mais « Modèle » indique ${configured.toUpperCase()} : rien n’a été envoyé.`,
+    ),
+  newAddress: (slot) =>
+    both(
+      `The IPX800 at the new address of IPX800 #${slot} is not checked yet (its MAC address): nothing was sent.`,
+      `L’IPX800 à la nouvelle adresse de l’IPX800 n°${slot} n’est pas encore vérifié (son adresse MAC) : rien n’a été envoyé.`,
+    ),
+  identityUnread: both(
+    'The MAC address of the IPX800 is not read yet: nothing was sent (Off and Frost protection still are).',
+    'L’adresse MAC de l’IPX800 n’est pas encore lue : rien n’a été envoyé (Arrêt et Hors-gel le sont quand même).',
+  ),
+  notAttached: (slot) =>
+    both(
+      `It is not known that this device belongs to the IPX800 read (IPX800 #${slot}, see its status): nothing was sent.`,
+      `Rien ne dit que cet appareil appartient à l’IPX800 lu (IPX800 n°${slot}, voir son état) : rien n’a été envoyé.`,
     ),
   saveFailed: both(
     'The state could not be written to /data: nothing was sent.',

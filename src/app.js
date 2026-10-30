@@ -1,8 +1,10 @@
 // -----------------------------------------------------------------------------
-// The integration: the IPX800 (V4 or V5) typed in the configuration, read
+// One IPX800 of the configuration (a slot: src/hub.js runs up to three), read
 // every poll interval through its local HTTP API; one Gladys device per
 // relay, digital input, pilot-wire zone and X-THL; the commands; the "Test
-// the connection" button. index.js only wires the SDK handlers.
+// the connection" button. index.js only wires the SDK handlers. No command
+// goes to, and no value comes from, an IPX800 other than the one the devices
+// of the slot belong to (see "Identity" below).
 //
 // One round: V4 `Get=all` (one request); V5 the layout (`system/ipx`, then
 // `ebx/<type>` of each extension type) and the values (`core/io`,
@@ -72,6 +74,7 @@ import { ERRORS, T, age, both, describe, join, listOf, reasonOf, shownCode, word
 import { IpxClient, PRIORITY } from './ipx/client.js';
 import { IpxError, errorReason } from './ipx/http.js';
 import {
+  parseMac,
   parseV4,
   parseV5Layout,
   parseV5Values,
@@ -102,6 +105,21 @@ function integerOf(value) {
   return undefined;
 }
 
+/** The salted id of a MAC address kept in /data (never the address itself). */
+export const macId = (salt, mac) =>
+  createHash('sha256')
+    .update(`ipx800-mac\u0000${salt}\u0000${mac}`, 'utf8')
+    .digest('hex')
+    .slice(0, 32);
+
+/** Codes only a V5 has (its extensions by IPX id), only a V4 has (FP, THL, R9+, D9+). */
+const V5_ONLY = (code) => /^(x8r|x8d|x24d|x4fp|xthl)\d/.test(code);
+const V4_ONLY = (code) =>
+  /^(fp|thl)\d/.test(code) || (/^[rd]\d+$/.test(code) && Number(code.slice(1)) > 8);
+
+/** The errors of a round after which the IPX may answer the API of the other model. */
+const OTHER_MODEL_CODES = ['http', 'bad_response', 'refused', 'not_success', 'size'];
+
 /** Is this command protective (never refused, sent first)? */
 export const isProtective = (kind, value) =>
   (kind === KINDS.PILOT && PROTECTIVE_MODES.includes(value)) ||
@@ -117,6 +135,8 @@ export class IpxApp {
     timers = globalThis,
     store = fileStore(),
     random = () => randomBytes(16).toString('hex'),
+    slot = 1,
+    publisher,
   }) {
     this.gladys = gladys;
     this.logger = logger;
@@ -126,8 +146,26 @@ export class IpxApp {
     this.timers = timers;
     this.store = store;
     this.random = random;
-    // The budget of 300 states a minute counts on the monotonic clock.
-    this.publisher = new StatePublisher({ gladys, logger, now: monotonic, timers });
+    /** Which IPX800 of the configuration (1 to SLOTS): its ids and its /data file. */
+    this.slot = slot;
+    // The budget of 300 states a minute counts on the monotonic clock; shared by the slots
+    // when given (src/hub.js starts and stops it then).
+    this.ownPublisher = !publisher;
+    this.publisher = publisher ?? new StatePublisher({ gladys, logger, now: monotonic, timers });
+    /**
+     * Is the IPX800 read the one the devices of this slot were made for (the owner in /data)?
+     * 'same'; 'pending' (V5 at start: its MAC being read); 'unverified' (V5 whose MAC could
+     * not be read); 'different' (another IPX800: nothing sent, its kept Offs dropped);
+     * 'unbound' (devices whose IPX800 is not known for sure: nothing sent).
+     */
+    this.verdict = 'unbound';
+    /** The identity of the last round: { kind: 'mac', id, label } | { kind: 'address', id }. */
+    this.seen = undefined;
+    this.identityCheck = undefined;
+    /** The first click of "Attach the devices": { at, id }. */
+    this.attachAsk = undefined;
+    /** 'v4' | 'v5': the model the IPX answers while the other one is configured. */
+    this.wrongModel = undefined;
     this.config = normalizeConfig();
     this.configLoaded = false;
     this.configTries = 0;
@@ -384,12 +422,20 @@ export class IpxApp {
     if (generation !== this.generation) return;
     this.adoptMemory(normalizeMemory(loaded, now), now, mono);
     this.memoryLoaded = true;
-    this.publisher.start();
+    if (!this.memory.salt && !this.storeUnreadable) this.memory.salt = this.random();
+    if (this.ownPublisher) this.publisher.start();
     const missing = this.configMessage();
     if (missing) {
+      this.verdict = 'unbound';
       await this.setStatus(false, missing);
+      // Nothing read: the Discover list of the previous configuration goes.
+      await this.publishDevices();
       return;
     }
+    // Which IPX800 the devices of this slot belong to, before anything is sent: from /data
+    // and the configuration (a V5 owner is checked by its MAC first, see below).
+    this.verdict = this.verdictAtStart();
+    if (this.verdict === 'different') this.dropGuards('another IPX800 is configured');
     this.client = new IpxClient({
       version: this.config.version,
       host: this.config.host,
@@ -405,12 +451,23 @@ export class IpxApp {
     // first, at their priority: no guard of /data starts before them only to be cut.
     const clicked = new Set(this.adoptPendingProtectives());
     const kept = [...this.guards.values()].filter((guard) => !clicked.has(guard));
-    for (const guard of [...clicked, ...kept]) {
-      if (clicked.has(guard)) {
-        this.resendGuard(guard, PRIORITY.PROTECTIVE);
-      } else if (!guard.confirmed && guard.resends < TIMINGS.resendMax) {
-        this.resendGuard(guard);
+    const sendKept = () => {
+      for (const guard of [...clicked, ...kept]) {
+        if (clicked.has(guard)) {
+          this.resendGuard(guard, PRIORITY.PROTECTIVE);
+        } else if (!guard.confirmed && guard.resends < TIMINGS.resendMax) {
+          this.resendGuard(guard);
+        }
       }
+    };
+    if (this.verdict === 'pending') {
+      // A V5 owner: its MAC first (one request); an Off kept for it never reaches another one.
+      const client = this.client;
+      this.identityCheck = this.checkIdentity(client, generation).then(() => {
+        if (generation === this.generation) sendKept();
+      });
+    } else {
+      sendKept();
     }
     // Commands (a click waiting) may go from now on.
     this.setReady();
@@ -418,6 +475,9 @@ export class IpxApp {
     if (generation !== this.generation) return;
     if (this.refusedApplies()) {
       await this.setStatus(false, T.refused);
+    } else if (this.verdict === 'different' || this.verdict === 'unbound') {
+      // Known before any read: said at once, not at the next round.
+      await this.setStatus(false, this.statusMessage());
     } else {
       await this.setStatus(false, this.pause ? this.pauseMessage(mono) : T.connecting);
     }
@@ -496,11 +556,12 @@ export class IpxApp {
       this.pendingProtectives.delete(code);
       const target = this.model.get(code);
       const unlisted = kind === KINDS.RELAY && !this.config.relays.has(code);
-      if (!target || target.kind !== kind || unlisted) {
+      const other = !this.mayDrive(true);
+      if (!target || target.kind !== kind || unlisted || other) {
         // Told, never dropped silently: the ack said it would be sent.
         this.droppedPending.add(code);
         this.logger.warn(
-          `ipx800: ${shownCode(code)} clicked before the configuration: not sent (${unlisted ? 'relay not listed' : 'unknown on this IPX800'})`,
+          `ipx800: ${shownCode(code)} clicked before the configuration: not sent (${other ? 'not the IPX800 of the devices' : unlisted ? 'relay not listed' : 'unknown on this IPX800'})`,
         );
         continue;
       }
@@ -520,7 +581,7 @@ export class IpxApp {
       this.timers.clearTimeout(timer);
     }
     this.followUps.clear();
-    this.publisher.stop();
+    if (this.ownPublisher) this.publisher.stop();
     for (const job of this.commands.splice(0)) {
       job.reject(
         this.refusal(ERRORS.notSent(both('integration restarting', 'intégration en redémarrage'))),
@@ -558,6 +619,10 @@ export class IpxApp {
     this.pendingWrites.clear();
     this.published = undefined;
     this.lastStatus = undefined;
+    this.seen = undefined;
+    this.identityCheck = undefined;
+    this.attachAsk = undefined;
+    this.wrongModel = undefined;
   }
 
   configMessage() {
@@ -591,7 +656,7 @@ export class IpxApp {
     this.published = undefined;
     await this.publishDevices();
     if (this.round && !this.offline && !this.refusedApplies()) {
-      await this.setStatus(true, this.statusMessage());
+      await this.setStatus(this.statusConnected(), this.statusMessage());
     }
   }
 
@@ -652,6 +717,9 @@ export class IpxApp {
       try {
         const loaded = normalizeMemory(await this.store.load(), this.now());
         this.storeUnreadable = false;
+        // The owner and its salt are the file's: none was set while it could not be read.
+        this.memory.owner = loaded.owner;
+        this.memory.salt = loaded.salt || this.memory.salt || this.random();
         if (loaded.key === this.config.key) {
           for (const g of loaded.guards) {
             if (!this.guards.has(g.code)) {
@@ -786,7 +854,15 @@ export class IpxApp {
         this.schedule();
         return;
       }
-      await this.failed(err, mono);
+      // An answer, but not of the model configured: is it the other model (a V4 typed V5)?
+      const other =
+        err instanceof IpxError && OTHER_MODEL_CODES.includes(err.code)
+          ? await client.otherModel(PRIORITY.READ, {
+              deadline: this.monotonic() + TIMINGS.requestTimeout,
+            })
+          : undefined;
+      if (gone()) return;
+      await this.failed(err, mono, other);
       this.schedule();
       return;
     }
@@ -810,7 +886,22 @@ export class IpxApp {
       );
       const parsed = parseV4(json, v4Codes(this.config.v4Extensions, this.config.relays));
       if (parsed.error) throw new IpxError(parsed.error, 'not an IPX800 V4 answer', { sent: true });
-      return { targets: parsed.targets, at, unreadTypes: [] };
+      // A V4 gives no MAC address in its API: it is known by its address (the controller key).
+      return { targets: parsed.targets, at, unreadTypes: [], seen: this.seenOf() };
+    }
+    // The MAC first: which IPX800 this is, read again every round.
+    let mac;
+    try {
+      mac = parseMac(await client.v5Info(PRIORITY.READ, hooks()));
+    } catch (err) {
+      if (
+        !(err instanceof IpxError) ||
+        ['cut', 'busy', 'network', 'timeout'].includes(err.code) ||
+        (err.code === 'late' && !err.sent)
+      ) {
+        throw err;
+      }
+      // An answer without it (an older firmware, say): unreadable, never "another IPX800".
     }
     const ipx = await client.v5Ipx(PRIORITY.READ, hooks());
     const extensions = new Map();
@@ -868,14 +959,15 @@ export class IpxApp {
         targets.set(code, { ...target, value: undefined, fault: undefined });
       }
     }
-    return { targets, at, unreadTypes };
+    return { targets, at, unreadTypes, seen: this.seenOf(mac) };
   }
 
-  async succeeded({ targets, at, unreadTypes }) {
+  async succeeded({ targets, at, unreadTypes, seen }) {
     this.pause = undefined;
     this.failures = 0;
     this.offline = false;
     this.lastReason = undefined;
+    this.wrongModel = undefined;
     if (this.memory.refused) {
       this.memory.refused = null;
       this.logger.info('ipx800: the IPX accepts the API key again');
@@ -885,15 +977,39 @@ export class IpxApp {
       this.model.set(code, { ...target, at });
     }
     this.round = { unreadTypes };
+    // Which IPX800 answered, against the owner of the devices, before anything is published.
+    this.seen = seen;
+    this.applyVerdict(this.judge(seen));
     this.applyRead(at);
     await this.saveMemory();
-    await this.setStatus(true, this.statusMessage());
+    await this.setStatus(this.statusConnected(), this.statusMessage());
     await this.publishDevices();
     await this.flush();
   }
 
-  /** The round failed: a pause; a refused key stops the reads. */
-  async failed(err, mono) {
+  /** The round failed: a pause; a refused key stops the reads; `other`: the IPX is of the other model. */
+  async failed(err, mono, other) {
+    if (other) {
+      // Not a refused key nor an outage: the model typed is not this IPX800's. A pause as a
+      // failure (the user changes the model), nothing published from it.
+      const wait = Math.max(
+        this.interval,
+        TIMINGS.backoff[Math.min(this.failures, TIMINGS.backoff.length - 1)],
+      );
+      this.failures += 1;
+      this.setPause(mono, wait, 'failed');
+      this.offline = true;
+      this.wrongModel = other;
+      this.lastReason = T.wrongModelReason(this.config.version, other);
+      this.logger.warn(
+        `ipx800: this IPX800 answers the ${other.toUpperCase()} API, ${this.config.version.toUpperCase()} is configured`,
+      );
+      await this.saveMemory();
+      await this.setStatus(false, T.wrongModel(this.config.version, other));
+      await this.publishDevices();
+      return;
+    }
+    this.wrongModel = undefined;
     if (err instanceof IpxError && err.code === 'refused') {
       const salt = this.random();
       this.memory.refused = { salt, tag: tagOf(salt, this.config.apiKey) };
@@ -902,8 +1018,11 @@ export class IpxApp {
       this.logger.warn('ipx800: the IPX refused the API key; no read until it changes');
       await this.saveMemory();
       await this.setStatus(false, T.refused);
+      await this.publishDevices();
       return;
     }
+    // No answer: the IPX800 may be replaced before the next read; an Off reads its MAC first.
+    this.recheck();
     const busy = err instanceof IpxError && err.code === 'busy';
     const wait = Math.max(
       this.interval,
@@ -917,10 +1036,29 @@ export class IpxApp {
     this.logger.warn(`ipx800: ${errorReason(err)}; next try in ${Math.round(wait / 1000)} s`);
     await this.saveMemory();
     await this.setStatus(false, T.unreachable(this.lastReason, age(wait)));
+    // An IPX800 that does not answer: its devices leave the Discover list until it does.
+    await this.publishDevices();
+  }
+
+  /**
+   * Connected for Gladys, and its values published onto the devices: the IPX800 of the
+   * devices, or likely so (its MAC unreadable this time, at the address it was checked at).
+   */
+  statusConnected() {
+    return (
+      this.verdict === 'same' ||
+      (this.verdict === 'unverified' && this.memory.owner?.at === this.config.key)
+    );
   }
 
   /** The counts and the warnings of the last round. */
   statusMessage() {
+    if (this.verdict === 'different' || this.verdict === 'unbound') {
+      return join(
+        this.verdictMessage(),
+        this.saveFailed || this.storeUnreadable ? T.storeProblem : undefined,
+      );
+    }
     const counts = { relays: 0, inputs: 0, zones: 0, thl: 0 };
     for (const target of this.model.values()) {
       if (target.kind === KINDS.RELAY) counts.relays += 1;
@@ -928,7 +1066,15 @@ export class IpxApp {
       else if (target.kind === KINDS.PILOT) counts.zones += 1;
       else counts.thl += 1;
     }
-    const parts = [T.connected(this.config.version, counts), ...this.relayHints()];
+    const parts = [
+      T.connected(this.config.version, counts),
+      this.verdict === 'unverified'
+        ? this.statusConnected()
+          ? T.identityUnreadable
+          : T.identityUnreadableNew
+        : undefined,
+      ...this.relayHints(),
+    ];
     if (this.config.relayErrors.length > 0) {
       parts.push(T.relayErrors(listOf(this.config.relayErrors)));
     }
@@ -1011,6 +1157,8 @@ export class IpxApp {
    * that left after the guard's last send count).
    */
   applyRead(at, { resend = true } = {}) {
+    // Another IPX800 (or one not known for sure): none of its values reach these devices.
+    if (!this.statusConnected()) return;
     const created = this.createdFeatures();
     for (const target of this.model.values()) {
       if (target.at !== at) continue;
@@ -1146,7 +1294,7 @@ export class IpxApp {
       this.saveMemory().catch(() => {});
       return;
     }
-    if (!client || !target || guard.inFlight) return;
+    if (!client || !target || guard.inFlight || !this.mayDrive(true)) return;
     guard.inFlight = true;
     let again = false;
     this.write(client, target, guard.value, priority, {
@@ -1159,6 +1307,8 @@ export class IpxApp {
         ) {
           throw new IpxError('late', 'superseded');
         }
+        // Another IPX800 found meanwhile: an Off kept for the old one never reaches it.
+        if (!this.mayDrive(true)) throw new IpxError('late', 'not the IPX800 of the devices');
       },
       onSent: () => {
         // Counted once it has left (a try that never left is not a resend).
@@ -1182,11 +1332,251 @@ export class IpxApp {
     this.logger.info(`ipx800: ${shownCode(guard.code)} sent again`);
   }
 
+  // --- Identity: the IPX800 of the devices ----------------------------------------
+  //
+  // The external ids hold no trace of the IPX800 (the first slot keeps the ids of 0.1.2):
+  // which one a slot's devices belong to is the owner in /data, set at the first round of a
+  // slot without devices (a V5 by the salted hash of its MAC address, read every round from
+  // `system/info`; a V4, which gives none, by its controller key: model, address, port).
+  // Another IPX800 at the address typed (or the model, or the address changed) gets no
+  // command, no value published onto these devices, no Off kept for the old one, and an
+  // empty Discover list, until the configuration points at the right one again or the user
+  // attaches the devices to it ("Attach the devices", two clicks). A slot whose devices are
+  // all deleted takes the IPX800 read as its owner. A file of 0.1.2 names the controller it
+  // read last: taken as the owner once a round confirms it, unless the devices created hold
+  // codes the model configured cannot have (an X-4FP of a V5 with a V4 typed).
+
+  /** What a round read: a V5 by its MAC address (undefined: unreadable), a V4 by its address. */
+  seenOf(mac) {
+    if (this.config.version === 'v4') return { kind: 'address', id: this.config.key };
+    return mac
+      ? { kind: 'mac', id: macId(this.memory.salt, mac), label: mac.slice(-8) }
+      : undefined;
+  }
+
+  /** No device of this slot holds a code the model configured cannot have. */
+  devicesFitModel() {
+    const impossible = this.config.version === 'v4' ? V5_ONLY : V4_ONLY;
+    return !this.createdDevices().some((d) => impossible(this.parseId(d.external_id).code));
+  }
+
+  /** Before any read: from /data and the configuration only. */
+  verdictAtStart() {
+    const owner = this.memory.owner;
+    if (this.storeUnreadable || !owner) return 'unbound';
+    if (owner.legacy && !this.devicesFitModel()) return 'unbound';
+    if (owner.kind === 'mac') return this.config.version === 'v5' ? 'pending' : 'different';
+    return owner.id === this.config.key ? 'same' : 'different';
+  }
+
+  /** After a round that read `seen`: the verdict; a slot without devices takes it as owner. */
+  judge(seen) {
+    const owner = this.memory.owner;
+    const key = this.config.key;
+    // /data unreadable is not empty: no owner is set over it (protective commands only).
+    if (this.storeUnreadable) return 'unbound';
+    const hasDevices = this.createdDevices().length > 0;
+    const bind = (why) => {
+      this.memory.owner =
+        seen?.kind === 'mac'
+          ? { kind: 'mac', id: seen.id, at: key }
+          : { kind: 'address', id: key, at: key };
+      if (owner) this.dropGuards('owner changed');
+      this.logger.info(
+        `ipx800: devices of IPX800 #${this.slot} now belong to the IPX800 read (${why})`,
+      );
+      return 'same';
+    };
+    if (!owner) return hasDevices ? 'unbound' : bind('first read');
+    if (owner.legacy && !this.devicesFitModel()) {
+      return hasDevices ? 'unbound' : bind('no device left');
+    }
+    let verdict;
+    if (owner.kind === 'mac') {
+      if (seen?.kind === 'mac') verdict = seen.id === owner.id ? 'same' : 'different';
+      else verdict = this.config.version === 'v4' ? 'different' : 'unverified';
+    } else {
+      verdict = owner.id === key ? 'same' : 'different';
+    }
+    if (verdict === 'different' && !hasDevices) return bind('no device left');
+    if (verdict === 'same') {
+      // A V5 known by its address so far is known by its MAC from now on (never the reverse).
+      this.memory.owner =
+        seen?.kind === 'mac'
+          ? { kind: 'mac', id: seen.id, at: key }
+          : { kind: owner.kind, id: owner.id, at: key };
+    }
+    return verdict;
+  }
+
+  applyVerdict(verdict) {
+    if (verdict === 'different' && this.verdict !== 'different') {
+      this.logger.warn(
+        `ipx800: IPX800 #${this.slot}: another IPX800 answers at this address; its devices get nothing`,
+      );
+    }
+    this.verdict = verdict;
+    if (verdict === 'different') this.dropGuards('another IPX800');
+  }
+
+  /** The Offs kept for the owner never go to another IPX800. */
+  dropGuards(why) {
+    if (this.guards.size > 0) {
+      this.logger.warn(`ipx800: ${this.guards.size} Off kept dropped (${why})`);
+    }
+    this.guards.clear();
+    this.pendingWrites.clear();
+    this.warnings.clear();
+  }
+
+  /**
+   * A V5 owner whose MAC must be read again before an Off leaves (at start, and after a
+   * failed round: it may have been replaced meanwhile at the same address).
+   */
+  recheck() {
+    if (
+      this.verdict === 'same' &&
+      this.config.version === 'v5' &&
+      this.memory.owner?.kind === 'mac'
+    ) {
+      this.verdict = 'pending';
+      this.identityCheck = undefined;
+    }
+  }
+
+  /** Its MAC read once (bounded): before the Offs kept leave at start, or a click after a failure. */
+  async checkIdentity(client, generation) {
+    let mac;
+    try {
+      mac = parseMac(
+        await client.v5Info(PRIORITY.GUARD, {
+          deadline: this.monotonic() + TIMINGS.requestTimeout,
+        }),
+      );
+    } catch {
+      mac = undefined;
+    }
+    if (generation !== this.generation || this.verdict !== 'pending') return;
+    const owner = this.memory.owner;
+    const seen = this.seenOf(mac);
+    if (!owner || owner.kind !== 'mac') return;
+    this.applyVerdict(seen ? (seen.id === owner.id ? 'same' : 'different') : 'unverified');
+    if (this.verdict === 'different') {
+      this.seen = seen;
+      await this.saveMemory();
+      if (generation === this.generation) await this.setStatus(false, this.statusMessage());
+    }
+  }
+
+  /**
+   * May a command leave for this IPX800? `protective`: an Off / Frost protection, sent unless
+   * the IPX800 is proven another one, or not known for sure; while its MAC is being read or
+   * cannot be read, only at the address it was last checked at. The others: only to the
+   * IPX800 of the devices, checked by the last round.
+   */
+  mayDrive(protective) {
+    switch (this.verdict) {
+      case 'same':
+        return true;
+      case 'pending':
+      case 'unverified':
+        return protective && this.memory.owner?.at === this.config.key;
+      case 'unbound':
+        // /data unreadable: its owner unknown, the Offs go to the address typed (as before).
+        return protective && this.storeUnreadable;
+      default:
+        return false;
+    }
+  }
+
+  /** A command arriving while the MAC is read at start waits for it (bounded), then the verdict. */
+  async identityGate(protective, received) {
+    if (this.verdict === 'pending' && !this.identityCheck && this.client) {
+      this.identityCheck = this.checkIdentity(this.client, this.generation);
+    }
+    if (this.verdict === 'pending' && this.identityCheck) {
+      const until = received + (protective ? TIMINGS.identityWait : TIMINGS.commandSendBy);
+      let timer;
+      await Promise.race([
+        this.identityCheck.catch(() => {}),
+        new Promise((resolve) => {
+          timer = this.timers.setTimeout(resolve, Math.max(0, until - this.monotonic()));
+        }),
+      ]);
+      this.timers.clearTimeout(timer);
+    }
+    if (!this.mayDrive(protective)) throw this.refusal(this.verdictError());
+  }
+
+  verdictError() {
+    if (this.wrongModel) return ERRORS.wrongModel(this.config.version, this.wrongModel);
+    switch (this.verdict) {
+      case 'different':
+        return ERRORS.otherIpx(this.slot);
+      case 'pending':
+      case 'unverified':
+        return this.memory.owner?.at === this.config.key
+          ? ERRORS.identityUnread
+          : ERRORS.newAddress(this.slot);
+      default:
+        return this.storeUnreadable ? ERRORS.saveFailed : ERRORS.notAttached(this.slot);
+    }
+  }
+
+  verdictMessage() {
+    if (this.verdict === 'different') {
+      return T.otherIpx(this.slot, this.config.version, this.seen?.label);
+    }
+    if (this.storeUnreadable) return T.ownerUnreadable;
+    return this.memory.owner?.legacy ? T.legacyNotAttached(this.slot) : T.notAttached(this.slot);
+  }
+
+  /**
+   * "Attach the devices": the devices of this slot belong from now on to the IPX800 read by
+   * the last round (another one, or one not known for sure). Two clicks within a minute on
+   * the same IPX800: the relays listed then drive that one. Its kept Offs are dropped.
+   */
+  async attach() {
+    if (!this.client || !this.round || this.offline || this.wrongModel) {
+      return T.attach.notRead;
+    }
+    if (this.verdict === 'same') return T.attach.already(this.slot);
+    if (this.storeUnreadable) return T.storeProblem;
+    if (this.verdict === 'unverified' || this.verdict === 'pending') return T.attach.unreadable;
+    const mono = this.monotonic();
+    const id = this.seen?.id ?? this.config.key;
+    const count = this.createdDevices().length;
+    const ask = this.attachAsk;
+    if (!ask || ask.id !== id || mono - ask.at > TIMINGS.attachConfirm) {
+      this.attachAsk = { at: mono, id };
+      return T.attach.confirm(this.slot, this.config.version, this.seen?.label, count);
+    }
+    this.attachAsk = undefined;
+    const seen = this.seen;
+    const key = this.config.key;
+    this.memory.owner =
+      seen?.kind === 'mac'
+        ? { kind: 'mac', id: seen.id, at: key }
+        : { kind: 'address', id: key, at: key };
+    this.dropGuards('devices attached to another IPX800');
+    this.verdict = 'same';
+    this.logger.info(`ipx800: devices of IPX800 #${this.slot} attached to the IPX800 read`);
+    await this.saveMemory();
+    this.published = undefined;
+    await this.setStatus(this.statusConnected(), this.statusMessage());
+    await this.publishDevices();
+    return T.attach.done(this.slot, count);
+  }
+
   // --- Gladys --------------------------------------------------------------------
 
+  /** One of the external ids of this slot: `{ kind, code, key }`; undefined otherwise. */
+  parseId(externalId) {
+    return parseExternalId(externalId, this.gladys.selector, this.slot);
+  }
+
   createdDevices() {
-    const selector = this.gladys.selector;
-    return (this.gladys.devices ?? []).filter((d) => parseExternalId(d.external_id, selector));
+    return (this.gladys.devices ?? []).filter((d) => this.parseId(d.external_id));
   }
 
   createdFeatures() {
@@ -1195,27 +1585,30 @@ export class IpxApp {
     );
   }
 
-  /** The devices to publish: the targets known, plus those created in Gladys (never dropped). */
+  /**
+   * The Discover list: the targets of the IPX800 really read (a round of this session, no
+   * failure since, the IPX800 of the devices), the features of the devices created kept.
+   * Anything else (not read yet, unreachable, refused key, another IPX800 or model) is an
+   * empty list: nothing of a box not read stays there.
+   */
   async publishDevices() {
-    const created = new Map();
-    for (const device of this.createdDevices()) created.set(device.external_id, device);
     const devices = [];
-    const seen = new Set();
-    for (const target of this.model.values()) {
-      const ids = idsOf(this.gladys, target.kind, target.code);
-      seen.add(ids.device);
-      devices.push(
-        buildDevice(this.gladys, target, {
-          language: this.config.language,
-          relayKind: this.config.relays.get(target.code),
-          created: created.get(ids.device),
-        }),
-      );
+    if (this.round && !this.offline && this.verdict === 'same' && !this.refusedApplies()) {
+      const created = new Map();
+      for (const device of this.createdDevices()) created.set(device.external_id, device);
+      for (const target of this.model.values()) {
+        if (target.at === undefined) continue;
+        const ids = idsOf(this.gladys, target.kind, target.code);
+        devices.push(
+          buildDevice(this.gladys, target, {
+            language: this.config.language,
+            relayKind: this.config.relays.get(target.code),
+            created: created.get(ids.device),
+            slot: this.slot,
+          }),
+        );
+      }
     }
-    for (const [id, device] of created) {
-      if (!seen.has(id)) devices.push(device);
-    }
-    if (devices.length === 0) return;
     const json = JSON.stringify(devices);
     if (json === this.published) return;
     try {
@@ -1243,13 +1636,14 @@ export class IpxApp {
    * (read by a round younger than an interval, no failure since).
    */
   async deviceCreated(device) {
-    const parsed = parseExternalId(device?.external_id, this.gladys.selector);
+    const parsed = this.parseId(device?.external_id);
     const target = parsed && this.model.get(parsed.code);
     const mono = this.monotonic();
     if (
       target &&
       target.at !== undefined &&
       !this.offline &&
+      this.statusConnected() &&
       this.pauseLeft(mono) === 0 &&
       mono - target.at <= this.interval + TIMINGS.roundBudget
     ) {
@@ -1264,15 +1658,18 @@ export class IpxApp {
 
   async deviceDeleted(device) {
     if (device?.external_id) this.publisher.forget(device.external_id);
-    if (parseExternalId(device?.external_id, this.gladys.selector)?.kind === KINDS.RELAY) {
-      await this.statusAgain();
-    }
+    const parsed = this.parseId(device?.external_id);
+    if (!parsed) return;
+    // The list again at once: a device recreated right away gets the features of now (a
+    // relay removed from the list no longer gets back the switch of the deleted device).
+    await this.publishDevices();
+    if (parsed.kind === KINDS.RELAY) await this.statusAgain();
   }
 
   /** The status of the last round again (what Gladys knows changed), never during a failure. */
   async statusAgain() {
     if (this.round && !this.offline && !this.refusedApplies()) {
-      await this.setStatus(true, this.statusMessage());
+      await this.setStatus(this.statusConnected(), this.statusMessage());
     }
   }
 
@@ -1437,7 +1834,7 @@ export class IpxApp {
   async setValue(_device, feature, value) {
     // The deadlines count from the arrival of the command, before any wait.
     const received = this.monotonic();
-    const parsed = parseExternalId(feature?.external_id, this.gladys.selector);
+    const parsed = this.parseId(feature?.external_id);
     if (!parsed || ![F.SWITCH, F.LIGHT, F.MODE].includes(parsed.key)) {
       throw this.refusal(parsed?.key === F.READONLY ? ERRORS.readOnly : ERRORS.notCommandable);
     }
@@ -1473,6 +1870,8 @@ export class IpxApp {
     } else {
       throw this.refusal(ERRORS.notCommandable);
     }
+    // Never to another IPX800 than the one these devices were made for, an Off neither.
+    await this.identityGate(isProtective(kind, wanted), received);
     const target = this.targetOf(parsed.code);
     if (!target || target.kind !== kind) throw this.refusal(ERRORS.unknownTarget);
     if (isProtective(kind, wanted)) {
@@ -1537,6 +1936,7 @@ export class IpxApp {
     if (generation !== this.generation || this.client !== client) {
       throw this.refusal(ERRORS.unknownTarget);
     }
+    if (!this.mayDrive(false)) throw this.refusal(this.verdictError());
     if (job.kind === KINDS.PILOT && !this.config.allowHeatingModes) {
       throw this.refusal(ERRORS.heatingDisabled);
     }
@@ -1732,6 +2132,7 @@ export class IpxApp {
             // Right before the first byte, at every try: a newer click on this target (say
             // during the wait between two tries) took its place; nothing leaves after it.
             if (this.guards.get(code) !== guard) throw new IpxError('late', 'superseded');
+            if (!this.mayDrive(true)) throw new IpxError('late', 'not the IPX800 of the devices');
             if (this.monotonic() >= sendBy) throw new IpxError('late', 'no time left to send');
           },
           onSent: () => {
@@ -1749,6 +2150,7 @@ export class IpxApp {
           !(err instanceof IpxError) ||
           generation !== this.generation ||
           this.guards.get(code) !== guard ||
+          !this.mayDrive(true) ||
           mono - first >= TIMINGS.protectiveRetry ||
           mono >= sendBy
         ) {
@@ -1764,6 +2166,12 @@ export class IpxApp {
     }
     guard.inFlight = false;
     guard.userInFlight = false;
+    if (!left && !this.mayDrive(true)) {
+      // Another IPX800 found meanwhile: not kept, never sent to it.
+      if (this.guards.get(code) === guard) this.guards.delete(code);
+      this.saveMemory().catch(() => {});
+      throw this.refusal(this.verdictError());
+    }
     this.saveMemory().catch(() => {});
     if (!left) {
       if (this.guards.get(code) !== guard) {

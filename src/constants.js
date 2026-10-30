@@ -102,6 +102,7 @@ export const RELAY_KINDS = [FEATURES.SWITCH, FEATURES.LIGHT];
 
 export const ACTIONS = {
   TEST_CONNECTION: 'test_connection',
+  ATTACH: 'attach_devices',
 };
 
 /** The poll interval of the configuration, in seconds. */
@@ -191,4 +192,8 @@ export const TIMINGS = {
   /** A click while the configuration is unread asks for it at once (2 s apart at most) and waits this long. */
   configAskGap: 2 * SECOND,
   configWait: 3 * SECOND,
+  /** At start, an Off waits this long at most for the MAC of a V5 to be read. */
+  identityWait: 1_500,
+  /** "Attach the devices": the second click within this. */
+  attachConfirm: MINUTE,
 };

@@ -1,6 +1,7 @@
 // -----------------------------------------------------------------------------
-// The SDK handlers, wired to the app. Shared by index.js and the end-to-end
-// tests, so the tests run the exact wiring of the container.
+// The SDK handlers, wired to the app (the IpxHub of src/hub.js in the
+// container, or one IpxApp). Shared by index.js and the end-to-end tests, so
+// the tests run the exact wiring of the container.
 // -----------------------------------------------------------------------------
 
 import { ACTIONS } from './constants.js';
@@ -15,8 +16,9 @@ export function registerHandlers(gladys, app, logger) {
   // Commands: the declared relays and the pilot-wire zones.
   gladys.onSetValue((device, feature, value) => app.setValue(device, feature, value));
 
-  // Configuration screen button.
+  // Configuration screen buttons.
   gladys.onAction(ACTIONS.TEST_CONNECTION, () => app.testConnection());
+  gladys.onAction(ACTIONS.ATTACH, (fields) => app.attach(fields));
 
   // Configuration changed by the user.
   gladys.onConfigUpdated((config) => app.configUpdated(config));

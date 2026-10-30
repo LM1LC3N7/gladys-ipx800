@@ -16,48 +16,81 @@
     {
       "key": "intro",
       "type": "section",
-      "label": { "en": "Your IPX800", "fr": "Votre IPX800" },
+      "label": {
+        "en": "Your IPX800",
+        "fr": "Votre IPX800"
+      },
       "description": {
-        "en": "Brings a GCE Electronics IPX800 V4 or V5 into Gladys through its local HTTP API and its API key: relays (read only unless you list them below), digital inputs, pilot-wire zones of the X-4FP and X-THL sensors. Pilot wire: Off and Frost protection go first, without any option (see the guide for their limits); Eco and Comfort only once allowed below. Never tested with a real device. Not affiliated with GCE Electronics.",
-        "fr": "Amène dans Gladys un IPX800 V4 ou V5 de GCE Electronics par son API HTTP locale et sa clé d’API : relais (en lecture seule sauf ceux listés ci-dessous), entrées, zones de fil pilote des X-4FP et capteurs X-THL. Fil pilote : Arrêt et Hors-gel passent en premier, sans option (limites dans le guide) ; Éco et Confort seulement une fois autorisés ci-dessous. Jamais testé avec un vrai appareil. Sans lien avec GCE Electronics."
+        "en": "Brings up to three GCE Electronics IPX800 V4 or V5 into Gladys through their local HTTP API and their API key: relays (read only unless you list them below), digital inputs, pilot-wire zones of the X-4FP and X-THL sensors. Pilot wire: Off and Frost protection go first, without any option (see the guide for their limits); Eco and Comfort only once allowed below. Each IPX800 keeps its own devices: another one never gets their commands. Never tested with a real device. Not affiliated with GCE Electronics.",
+        "fr": "Amène dans Gladys jusqu’à trois IPX800 V4 ou V5 de GCE Electronics par leur API HTTP locale et leur clé d’API : relais (en lecture seule sauf ceux listés ci-dessous), entrées, zones de fil pilote des X-4FP et capteurs X-THL. Fil pilote : Arrêt et Hors-gel passent en premier, sans option (limites dans le guide) ; Éco et Confort seulement une fois autorisés ci-dessous. Chaque IPX800 garde ses propres appareils : un autre ne reçoit jamais leurs commandes. Jamais testé avec un vrai appareil. Sans lien avec GCE Electronics."
       },
       "links": [
         {
           "url": "https://github.com/LM1LC3N7/gladys-ipx800/blob/main/docs/fr.md",
-          "label": { "en": "Guide (French)", "fr": "Guide (français)" }
+          "label": {
+            "en": "Guide (French)",
+            "fr": "Guide (français)"
+          }
         },
         {
           "url": "https://github.com/LM1LC3N7/gladys-ipx800/blob/main/docs/en.md",
-          "label": { "en": "Guide (English)", "fr": "Guide (anglais)" }
+          "label": {
+            "en": "Guide (English)",
+            "fr": "Guide (anglais)"
+          }
         }
       ]
     },
     {
       "key": "version",
       "type": "select",
-      "label": { "en": "Model", "fr": "Modèle" },
+      "label": {
+        "en": "Model",
+        "fr": "Modèle"
+      },
       "required": false,
       "default": "v5",
       "options": [
-        { "value": "v5", "label": { "en": "IPX800 V5", "fr": "IPX800 V5" } },
-        { "value": "v4", "label": { "en": "IPX800 V4", "fr": "IPX800 V4" } }
+        {
+          "value": "v5",
+          "label": {
+            "en": "IPX800 V5",
+            "fr": "IPX800 V5"
+          }
+        },
+        {
+          "value": "v4",
+          "label": {
+            "en": "IPX800 V4",
+            "fr": "IPX800 V4"
+          }
+        }
       ]
     },
     {
       "key": "host",
       "type": "string",
-      "label": { "en": "Address of the IPX800", "fr": "Adresse de l’IPX800" },
+      "label": {
+        "en": "Address of the IPX800",
+        "fr": "Adresse de l’IPX800"
+      },
       "description": {
         "en": "Its IP address (or name) on your network, without path nor key; give it a fixed address in your router.",
         "fr": "Son adresse IP (ou son nom) sur votre réseau, sans chemin ni clé ; donnez-lui une adresse fixe dans votre box."
       },
-      "placeholder": { "en": "192.168.1.50", "fr": "192.168.1.50" },
+      "placeholder": {
+        "en": "192.168.1.50",
+        "fr": "192.168.1.50"
+      },
       "required": true
     },
     {
       "key": "port",
       "type": "number",
-      "label": { "en": "Port", "fr": "Port" },
+      "label": {
+        "en": "Port",
+        "fr": "Port"
+      },
       "description": {
         "en": "80 unless you changed the port of its web server.",
         "fr": "80 sauf si vous avez changé le port de son serveur web."
@@ -70,7 +103,10 @@
     {
       "key": "api_key",
       "type": "secret",
-      "label": { "en": "API key", "fr": "Clé d’API" },
+      "label": {
+        "en": "API key",
+        "fr": "Clé d’API"
+      },
       "description": {
         "en": "Created in the IPX800 (V5: System > API, V4: Network > API). The IPX800 wants it in the address of every request, over plain http: anyone who can watch your network can read it, as with the IPX800's own apps. Kept by Gladys in its database, never shown again, sent only to the IPX800, never written in the logs.",
         "fr": "Créée dans l’IPX800 (V5 : Système > API, V4 : Réseau > API). L’IPX800 la veut dans l’adresse de chaque requête, en http simple : qui peut écouter votre réseau peut la lire, comme avec les applis de l’IPX800. Gardée par Gladys dans sa base, jamais réaffichée, envoyée seulement à l’IPX800, jamais écrite dans les journaux."
@@ -80,29 +116,44 @@
     {
       "key": "relays",
       "type": "string",
-      "label": { "en": "Relays Gladys may drive", "fr": "Relais pilotables par Gladys" },
+      "label": {
+        "en": "Relays Gladys may drive",
+        "fr": "Relais pilotables par Gladys"
+      },
       "description": {
         "en": "The other relays are read only. Codes as in the device names: R1 to R8 (V4: up to R56), X8R<id>-<n> for an X-8R of the V5 (copy it from the device name); add :light for a light, e.g. \"R1, R3:light, X8R4259840-2\". A relay listed here obeys every \"turn everything off\" of Google, Alexa, the MCP and the scenes: never list a pump, a freezer, a ventilation, a heating, a door strike nor a valve. List them before creating them in Discover; a relay already created stays read only until you click \"Update\" on it in Discover.",
         "fr": "Les autres relais sont en lecture seule. Codes comme dans les noms des appareils : R1 à R8 (V4 : jusqu’à R56), X8R<id>-<n> pour un X-8R de la V5 (copiez-le depuis le nom de l’appareil) ; ajoutez :light pour une lumière, par ex. « R1, R3:light, X8R4259840-2 ». Un relais listé ici obéit à tout « éteins tout » de Google, Alexa, du MCP et des scènes : n’y mettez jamais une pompe, un congélateur, une VMC, un chauffage, une gâche ni une vanne. Listez-les avant de les créer dans Découverte ; un relais déjà créé reste en lecture seule jusqu’à ce que vous cliquiez « Mettre à jour » sur lui dans Découverte."
       },
-      "placeholder": { "en": "R1, R3:light", "fr": "R1, R3:light" },
+      "placeholder": {
+        "en": "R1, R3:light",
+        "fr": "R1, R3:light"
+      },
       "required": false
     },
     {
       "key": "v4_extensions",
       "type": "string",
-      "label": { "en": "Extensions of an IPX800 V4", "fr": "Extensions d’un IPX800 V4" },
+      "label": {
+        "en": "Extensions of an IPX800 V4",
+        "fr": "Extensions d’un IPX800 V4"
+      },
       "description": {
         "en": "V4 only (the V5 lists its extensions itself): what your IPX800 V4 has beyond its 8 relays and 8 inputs, e.g. \"R9-R16, D9-D16, FP1-FP4, THL1\" (FP: pilot-wire zones 1 to 16, four per X-4FP).",
         "fr": "V4 seulement (la V5 liste elle-même ses extensions) : ce que votre IPX800 V4 a en plus de ses 8 relais et 8 entrées, par ex. « R9-R16, D9-D16, FP1-FP4, THL1 » (FP : zones de fil pilote 1 à 16, quatre par X-4FP)."
       },
-      "placeholder": { "en": "FP1-FP4", "fr": "FP1-FP4" },
+      "placeholder": {
+        "en": "FP1-FP4",
+        "fr": "FP1-FP4"
+      },
       "required": false
     },
     {
       "key": "safety",
       "type": "section",
-      "label": { "en": "Pilot wire", "fr": "Fil pilote" },
+      "label": {
+        "en": "Pilot wire",
+        "fr": "Fil pilote"
+      },
       "description": {
         "en": "Off and Frost protection need no option and go before everything else, during a pause or before the first read; they are refused only when the IPX800 or the zone is not known yet (see the guide). Eco, Comfort, Comfort -1 and Comfort -2 drive the heating: they are off by default. Once allowed, every Gladys user, every scene and the Gladys app can choose them.",
         "fr": "Arrêt et Hors-gel n’ont besoin d’aucune option et passent avant tout le reste, pendant une pause ou avant la première lecture ; ils ne sont refusés que si l’IPX800 ou la zone n’est pas encore connu (voir le guide). Éco, Confort, Confort -1 et Confort -2 pilotent le chauffage : ils sont désactivés par défaut. Une fois autorisés, tout utilisateur de Gladys, toute scène et l’application Gladys peuvent les choisir."
@@ -121,7 +172,10 @@
     {
       "key": "poll_interval",
       "type": "number",
-      "label": { "en": "Read every (seconds)", "fr": "Lecture toutes les (secondes)" },
+      "label": {
+        "en": "Read every (seconds)",
+        "fr": "Lecture toutes les (secondes)"
+      },
       "description": {
         "en": "How often the IPX800 is read: 10 s by default, 5 s at least.",
         "fr": "Fréquence de lecture de l’IPX800 : 10 s par défaut, 5 s au moins."
@@ -134,7 +188,10 @@
     {
       "key": "language",
       "type": "select",
-      "label": { "en": "Language of the names", "fr": "Langue des noms" },
+      "label": {
+        "en": "Language of the names",
+        "fr": "Langue des noms"
+      },
       "description": {
         "en": "Used for the names of the devices and features added from now on.",
         "fr": "Sert aux noms des appareils et fonctionnalités ajoutés désormais."
@@ -142,16 +199,282 @@
       "required": false,
       "default": "fr",
       "options": [
-        { "value": "fr", "label": { "en": "French", "fr": "Français" } },
-        { "value": "en", "label": { "en": "English", "fr": "Anglais" } }
+        {
+          "value": "fr",
+          "label": {
+            "en": "French",
+            "fr": "Français"
+          }
+        },
+        {
+          "value": "en",
+          "label": {
+            "en": "English",
+            "fr": "Anglais"
+          }
+        }
       ]
+    },
+    {
+      "key": "ipx_2",
+      "type": "section",
+      "label": {
+        "en": "IPX800 #2 (optional)",
+        "fr": "IPX800 n°2 (facultatif)"
+      },
+      "description": {
+        "en": "A second IPX800 of the house (a V4 next to a V5, say), with its own devices: fill in its model, its address and its API key; leave empty otherwise. Never move an IPX800 from one slot to another: its devices stay with their slot. The poll interval, the heating option and the language above are shared.",
+        "fr": "Un deuxième IPX800 de la maison (une V4 à côté d’une V5, par exemple), avec ses propres appareils : renseignez son modèle, son adresse et sa clé d’API ; laissez vide sinon. Ne déplacez jamais un IPX800 d’un emplacement à un autre : ses appareils restent avec leur emplacement. L’intervalle de lecture, l’option de chauffage et la langue ci-dessus sont communs."
+      }
+    },
+    {
+      "key": "version_2",
+      "type": "select",
+      "label": {
+        "en": "Model of IPX800 #2",
+        "fr": "Modèle de l’IPX800 n°2"
+      },
+      "required": false,
+      "default": "v5",
+      "options": [
+        {
+          "value": "v5",
+          "label": {
+            "en": "IPX800 V5",
+            "fr": "IPX800 V5"
+          }
+        },
+        {
+          "value": "v4",
+          "label": {
+            "en": "IPX800 V4",
+            "fr": "IPX800 V4"
+          }
+        }
+      ]
+    },
+    {
+      "key": "host_2",
+      "type": "string",
+      "label": {
+        "en": "Address of IPX800 #2",
+        "fr": "Adresse de l’IPX800 n°2"
+      },
+      "description": {
+        "en": "Its IP address (or name), with :port only if its web server is not on 80; give it a fixed address in your router.",
+        "fr": "Son adresse IP (ou son nom), avec :port seulement si son serveur web n’est pas sur le 80 ; donnez-lui une adresse fixe dans votre box."
+      },
+      "placeholder": {
+        "en": "192.168.1.51",
+        "fr": "192.168.1.51"
+      },
+      "required": false
+    },
+    {
+      "key": "api_key_2",
+      "type": "secret",
+      "label": {
+        "en": "API key of IPX800 #2",
+        "fr": "Clé d’API de l’IPX800 n°2"
+      },
+      "description": {
+        "en": "As for the first one: kept by Gladys in its database, never shown again, sent only to this IPX800, never written in the logs.",
+        "fr": "Comme pour le premier : gardée par Gladys dans sa base, jamais réaffichée, envoyée seulement à cet IPX800, jamais écrite dans les journaux."
+      },
+      "required": false
+    },
+    {
+      "key": "relays_2",
+      "type": "string",
+      "label": {
+        "en": "Relays of IPX800 #2 Gladys may drive",
+        "fr": "Relais de l’IPX800 n°2 pilotables par Gladys"
+      },
+      "description": {
+        "en": "Same rules as for the first one (codes as in the device names, :light for a light). A relay listed here obeys every \"turn everything off\": never list a pump, a freezer, a ventilation, a heating, a door strike nor a valve.",
+        "fr": "Mêmes règles que pour le premier (codes comme dans les noms des appareils, :light pour une lumière). Un relais listé ici obéit à tout « éteins tout » : n’y mettez jamais une pompe, un congélateur, une VMC, un chauffage, une gâche ni une vanne."
+      },
+      "placeholder": {
+        "en": "R1, R3:light",
+        "fr": "R1, R3:light"
+      },
+      "required": false
+    },
+    {
+      "key": "v4_extensions_2",
+      "type": "string",
+      "label": {
+        "en": "Extensions of IPX800 #2 (V4)",
+        "fr": "Extensions de l’IPX800 n°2 (V4)"
+      },
+      "description": {
+        "en": "V4 only: what it has beyond its 8 relays and 8 inputs, e.g. \"R9-R16, FP1-FP4, THL1\".",
+        "fr": "V4 seulement : ce qu’il a en plus de ses 8 relais et 8 entrées, par ex. « R9-R16, FP1-FP4, THL1 »."
+      },
+      "placeholder": {
+        "en": "FP1-FP4",
+        "fr": "FP1-FP4"
+      },
+      "required": false
+    },
+    {
+      "key": "ipx_3",
+      "type": "section",
+      "label": {
+        "en": "IPX800 #3 (optional)",
+        "fr": "IPX800 n°3 (facultatif)"
+      },
+      "description": {
+        "en": "A third IPX800 of the house (a V4 next to a V5, say), with its own devices: fill in its model, its address and its API key; leave empty otherwise. Never move an IPX800 from one slot to another: its devices stay with their slot. The poll interval, the heating option and the language above are shared.",
+        "fr": "Un troisième IPX800 de la maison (une V4 à côté d’une V5, par exemple), avec ses propres appareils : renseignez son modèle, son adresse et sa clé d’API ; laissez vide sinon. Ne déplacez jamais un IPX800 d’un emplacement à un autre : ses appareils restent avec leur emplacement. L’intervalle de lecture, l’option de chauffage et la langue ci-dessus sont communs."
+      }
+    },
+    {
+      "key": "version_3",
+      "type": "select",
+      "label": {
+        "en": "Model of IPX800 #3",
+        "fr": "Modèle de l’IPX800 n°3"
+      },
+      "required": false,
+      "default": "v5",
+      "options": [
+        {
+          "value": "v5",
+          "label": {
+            "en": "IPX800 V5",
+            "fr": "IPX800 V5"
+          }
+        },
+        {
+          "value": "v4",
+          "label": {
+            "en": "IPX800 V4",
+            "fr": "IPX800 V4"
+          }
+        }
+      ]
+    },
+    {
+      "key": "host_3",
+      "type": "string",
+      "label": {
+        "en": "Address of IPX800 #3",
+        "fr": "Adresse de l’IPX800 n°3"
+      },
+      "description": {
+        "en": "Its IP address (or name), with :port only if its web server is not on 80; give it a fixed address in your router.",
+        "fr": "Son adresse IP (ou son nom), avec :port seulement si son serveur web n’est pas sur le 80 ; donnez-lui une adresse fixe dans votre box."
+      },
+      "placeholder": {
+        "en": "192.168.1.51",
+        "fr": "192.168.1.51"
+      },
+      "required": false
+    },
+    {
+      "key": "api_key_3",
+      "type": "secret",
+      "label": {
+        "en": "API key of IPX800 #3",
+        "fr": "Clé d’API de l’IPX800 n°3"
+      },
+      "description": {
+        "en": "As for the first one: kept by Gladys in its database, never shown again, sent only to this IPX800, never written in the logs.",
+        "fr": "Comme pour le premier : gardée par Gladys dans sa base, jamais réaffichée, envoyée seulement à cet IPX800, jamais écrite dans les journaux."
+      },
+      "required": false
+    },
+    {
+      "key": "relays_3",
+      "type": "string",
+      "label": {
+        "en": "Relays of IPX800 #3 Gladys may drive",
+        "fr": "Relais de l’IPX800 n°3 pilotables par Gladys"
+      },
+      "description": {
+        "en": "Same rules as for the first one (codes as in the device names, :light for a light). A relay listed here obeys every \"turn everything off\": never list a pump, a freezer, a ventilation, a heating, a door strike nor a valve.",
+        "fr": "Mêmes règles que pour le premier (codes comme dans les noms des appareils, :light pour une lumière). Un relais listé ici obéit à tout « éteins tout » : n’y mettez jamais une pompe, un congélateur, une VMC, un chauffage, une gâche ni une vanne."
+      },
+      "placeholder": {
+        "en": "R1, R3:light",
+        "fr": "R1, R3:light"
+      },
+      "required": false
+    },
+    {
+      "key": "v4_extensions_3",
+      "type": "string",
+      "label": {
+        "en": "Extensions of IPX800 #3 (V4)",
+        "fr": "Extensions de l’IPX800 n°3 (V4)"
+      },
+      "description": {
+        "en": "V4 only: what it has beyond its 8 relays and 8 inputs, e.g. \"R9-R16, FP1-FP4, THL1\".",
+        "fr": "V4 seulement : ce qu’il a en plus de ses 8 relais et 8 entrées, par ex. « R9-R16, FP1-FP4, THL1 »."
+      },
+      "placeholder": {
+        "en": "FP1-FP4",
+        "fr": "FP1-FP4"
+      },
+      "required": false
     }
   ],
   "actions": [
     {
       "key": "test_connection",
-      "label": { "en": "Test the connection", "fr": "Tester la connexion" },
+      "label": {
+        "en": "Test the connection",
+        "fr": "Tester la connexion"
+      },
       "timeout_seconds": 30
+    },
+    {
+      "key": "attach_devices",
+      "label": {
+        "en": "Attach the devices",
+        "fr": "Rattacher les appareils"
+      },
+      "description": {
+        "en": "Only when the status asks for it, after you REPLACED an IPX800 (or after a reset of the integration's data): its devices then drive the IPX800 read now. Two clicks within a minute. Never to bring in another IPX800: give it its own slot.",
+        "fr": "Seulement quand l’état le demande, après avoir REMPLACÉ un IPX800 (ou une remise à zéro des données de l’intégration) : ses appareils pilotent alors l’IPX800 lu en ce moment. Deux clics dans la minute. Jamais pour ajouter un autre IPX800 : donnez-lui son propre emplacement."
+      },
+      "timeout_seconds": 30,
+      "fields": [
+        {
+          "key": "ipx",
+          "type": "select",
+          "label": {
+            "en": "IPX800",
+            "fr": "IPX800"
+          },
+          "required": true,
+          "default": "1",
+          "options": [
+            {
+              "value": "1",
+              "label": {
+                "en": "IPX800 #1",
+                "fr": "IPX800 n°1"
+              }
+            },
+            {
+              "value": "2",
+              "label": {
+                "en": "IPX800 #2",
+                "fr": "IPX800 n°2"
+              }
+            },
+            {
+              "value": "3",
+              "label": {
+                "en": "IPX800 #3",
+                "fr": "IPX800 n°3"
+              }
+            }
+          ]
+        }
+      ]
     }
   ]
 }

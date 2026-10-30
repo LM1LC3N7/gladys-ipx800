@@ -141,6 +141,21 @@ export function v4WriteQuery(target, value, fpCode) {
 
 // --- V5 ------------------------------------------------------------------------
 
+/**
+ * The MAC address of a V5 `system/info` answer (`macAdress`, as the IPX spells it and
+ * pypx800v5 reads it; `macAddress` taken too), lower case with colons; undefined when
+ * absent, malformed, all zeros or all ones (no identity, never "another IPX").
+ */
+export function parseMac(json) {
+  const raw = own(json, 'macAdress') ?? own(json, 'macAddress');
+  if (typeof raw !== 'string') return undefined;
+  const hex = raw.trim().toLowerCase();
+  if (!/^[0-9a-f]{2}(?:[:-]?[0-9a-f]{2}){5}$/.test(hex)) return undefined;
+  const digits = hex.replace(/[:-]/g, '');
+  if (/^0{12}$|^f{12}$/.test(digits)) return undefined;
+  return digits.match(/../g).join(':');
+}
+
 /** A list of `{ _id, ... }` objects (bounded); undefined when not a list. */
 function list(json) {
   return Array.isArray(json) ? json.slice(0, LIMITS.items) : undefined;
