@@ -12,11 +12,13 @@
 //     zones (a protective command can leave before the first read), and the
 //     protective commands to send again (guards).
 // Never the API key nor the address. A small JSON file, written through a
-// temporary file and a rename, one save after the other, readable by the
-// container user only (0600).
+// temporary file and a rename, one save after the other (never stuck behind
+// one that hangs), readable by the container user only (0600). The app bounds
+// every read and save of it (src/app.js): a /data that does not answer is
+// unreadable or not written, never a wait.
 // -----------------------------------------------------------------------------
 
-import { open, readFile, rename } from 'node:fs/promises';
+import * as fsPromises from 'node:fs/promises';
 import { LIMITS, TIMINGS } from './constants.js';
 
 export const STATE_FILE = '/data/ipx800-state.json';
@@ -28,15 +30,29 @@ export const FORMAT = 2;
 /** A larger file is not ours: refused (read bounded). */
 const MAX_STATE_BYTES = 256 * 1024;
 
-export function fileStore(path = STATE_FILE) {
-  // One write at a time: two saves never share the temporary file.
-  let chain = Promise.resolve();
+/**
+ * The /data file of a slot. Saves go one after the other, but a save never waits more than
+ * `queueWait` for the one before it (a frozen fsync, say): it then writes through a temporary
+ * file of its own (two writes never share one), and an older write that ends after a newer
+ * one is in place drops its file instead of renaming it over the newer state. `fs` and
+ * `timers`: the tests' (a write that hangs).
+ */
+export function fileStore(
+  path = STATE_FILE,
+  { fs = fsPromises, timers = globalThis, queueWait = TIMINGS.storeWait } = {},
+) {
+  let previous = Promise.resolve();
+  let count = 0;
+  /** The number of the newest save whose file is in place. */
+  let placed = 0;
+  /** The shared temporary name is held by a write that has not ended (it may hang). */
+  let sharedBusy = false;
   return {
     /** null when there is no file (a fresh install); throws when it cannot be read or parsed. */
     async load() {
       let text;
       try {
-        text = await readFile(path, 'utf8');
+        text = await fs.readFile(path, 'utf8');
       } catch (err) {
         if (err?.code === 'ENOENT') {
           return null;
@@ -50,18 +66,42 @@ export function fileStore(path = STATE_FILE) {
     },
     save(data) {
       const text = JSON.stringify(data);
-      const write = chain.then(async () => {
-        const temporary = `${path}.tmp`;
-        const file = await open(temporary, 'w', 0o600);
+      const seq = ++count;
+      const before = previous;
+      const write = (async () => {
+        let timer;
+        await Promise.race([
+          before,
+          new Promise((resolve) => {
+            timer = timers.setTimeout(resolve, queueWait);
+          }),
+        ]);
+        timers.clearTimeout(timer);
+        const shared = !sharedBusy;
+        if (shared) sharedBusy = true;
+        const temporary = shared ? `${path}.tmp` : `${path}.tmp-${seq}`;
         try {
-          await file.writeFile(text, 'utf8');
-          await file.sync();
+          const file = await fs.open(temporary, 'w', 0o600);
+          try {
+            await file.writeFile(text, 'utf8');
+            await file.sync();
+          } finally {
+            await file.close();
+          }
+          if (seq < placed) {
+            // A newer state is in place (this write hung meanwhile): never put back over it. (A
+            // rename that hangs itself may still land late: the app writes its latest state
+            // again once that write ends, see saveMemory in src/app.js.)
+            await fs.unlink(temporary).catch(() => {});
+            return;
+          }
+          await fs.rename(temporary, path);
+          placed = Math.max(placed, seq);
         } finally {
-          await file.close();
+          if (shared) sharedBusy = false;
         }
-        await rename(temporary, path);
-      });
-      chain = write.catch(() => {});
+      })();
+      previous = write.catch(() => {});
       return write;
     },
   };

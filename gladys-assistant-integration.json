@@ -155,8 +155,8 @@
         "fr": "Fil pilote"
       },
       "description": {
-        "en": "Off and Frost protection need no option and go before everything else, during a pause or before the first read; they are refused only when the IPX800 or the zone is not known yet (see the guide). Eco, Comfort, Comfort -1 and Comfort -2 drive the heating: they are off by default. Once allowed, every Gladys user, every scene and the Gladys app can choose them.",
-        "fr": "Arrêt et Hors-gel n’ont besoin d’aucune option et passent avant tout le reste, pendant une pause ou avant la première lecture ; ils ne sont refusés que si l’IPX800 ou la zone n’est pas encore connu (voir le guide). Éco, Confort, Confort -1 et Confort -2 pilotent le chauffage : ils sont désactivés par défaut. Une fois autorisés, tout utilisateur de Gladys, toute scène et l’application Gladys peuvent les choisir."
+        "en": "Off and Frost protection need no option and go before everything else, during a pause or before the first read; they are refused mainly when another IPX800 answers at the address or the zone is not known yet (the full list is in the guide). Eco, Comfort, Comfort -1 and Comfort -2 drive the heating: they are off by default. Once allowed, every Gladys user, every scene and the Gladys app can choose them.",
+        "fr": "Arrêt et Hors-gel n’ont besoin d’aucune option et passent avant tout le reste, pendant une pause ou avant la première lecture ; ils sont refusés surtout quand un autre IPX800 répond à l’adresse ou que la zone n’est pas encore connue (la liste complète est dans le guide). Éco, Confort, Confort -1 et Confort -2 pilotent le chauffage : ils sont désactivés par défaut. Une fois autorisés, tout utilisateur de Gladys, toute scène et l’application Gladys peuvent les choisir."
       }
     },
     {
@@ -436,8 +436,8 @@
         "fr": "Rattacher les appareils"
       },
       "description": {
-        "en": "Only when the status asks for it: after you replaced an IPX800, changed the address of a V4, to confirm devices created with 0.1.2, or when the MAC address of a V5 can no longer be read. The devices of the slot chosen then drive the IPX800 read now. Two clicks within a minute. Never to bring in another IPX800: give it its own slot.",
-        "fr": "Seulement quand l’état le demande : après avoir remplacé un IPX800, changé l’adresse d’une V4, pour confirmer des appareils créés avec la 0.1.2, ou quand l’adresse MAC d’une V5 ne peut plus être lue. Les appareils de l’emplacement choisi pilotent alors l’IPX800 lu en ce moment. Deux clics dans la minute. Jamais pour ajouter un autre IPX800 : donnez-lui son propre emplacement."
+        "en": "Only when the status asks for it: after you replaced an IPX800, changed the address of a V4, to confirm devices created with 0.1.2 or devices whose IPX800 is not known (/data emptied, Gladys restored on another machine), or when the MAC address of a V5 can no longer be read. The devices of the slot chosen then drive the IPX800 read now. Two clicks within a minute. Never to bring in another IPX800: give it its own slot.",
+        "fr": "Seulement quand l’état le demande : après avoir remplacé un IPX800, changé l’adresse d’une V4, pour confirmer des appareils créés avec la 0.1.2 ou dont l’IPX800 n’est pas connu (/data vidé, Gladys restauré sur une autre machine), ou quand l’adresse MAC d’une V5 ne peut plus être lue. Les appareils de l’emplacement choisi pilotent alors l’IPX800 lu en ce moment. Deux clics dans la minute. Jamais pour ajouter un autre IPX800 : donnez-lui son propre emplacement."
       },
       "timeout_seconds": 30,
       "fields": [

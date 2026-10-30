@@ -592,7 +592,7 @@ test('after a failed round, an Off reads the MAC first: another V5 there gets no
   app.stop();
 });
 
-test('/data lost (a fresh file) with devices there: not bound to whatever answers, Attach asked', async () => {
+test('/data lost (a fresh file) with devices there: not bound to whatever answers, Offs only, Attach asked', async () => {
   const device = switchOf('r1');
   const { app, gladys, store, start, cmd, world } = await setup({
     config: { ...CONFIG.v4, relays: 'R1' },
@@ -602,10 +602,17 @@ test('/data lost (a fresh file) with devices there: not bound to whatever answer
   await start();
   assert.equal(store.data.owner, null);
   assert.match(message(gladys), /not known to belong to the IPX800 read/);
-  for (const value of [0, 1]) {
-    assert.equal((await cmd(device, F('relay', 'r1', 'switch'), value)).success, false);
-  }
-  assert.equal(world.writes().length, 0);
+  assert.match(message(gladys), /only Off and Frost protection are sent to it, at the address/);
+  assert.equal(gladys.fake.connectionStatus.connected, false);
+  assert.deepEqual(discovered(gladys), []);
+  // Nothing proves another IPX800 at the address typed (r4 I2): the Off goes, nothing else.
+  const on = await cmd(device, F('relay', 'r1', 'switch'), 1);
+  assert.match(on.error, /Rien ne dit que cet appareil appartient/);
+  assert.equal((await cmd(device, F('relay', 'r1', 'switch'), 0)).success, true);
+  assert.deepEqual(
+    world.writes().map((w) => /ClearR=01|SetR=01/.exec(w.path)?.[0]),
+    ['ClearR=01'],
+  );
   await gladys.fake.action('attach_devices', { ipx: '1' });
   await gladys.fake.action('attach_devices', { ipx: '1' });
   assert.equal((await cmd(device, F('relay', 'r1', 'switch'), 1)).success, true);

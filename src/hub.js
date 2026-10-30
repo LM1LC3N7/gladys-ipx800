@@ -6,17 +6,20 @@
 //   - its external ids (`ext:<selector>:ipx<n>:...` for n >= 2, those of
 //     0.1.2 for the first) and its created devices only;
 //   - the connection status: the first slot's own while it is the only one
-//     used, one line per IPX800 otherwise (connected when all of them are), separated by " | " (one block in Gladys);
+//     used, one part per IPX800 otherwise, separated by " | " (Gladys shows
+//     one block), connected when all of them are;
 //   - the Discover list: the lists of the slots put together;
 //   - the states: one publisher, so that the 300 states a minute of Gladys
 //     hold for all of them.
 // A slot is used when an address or a key is typed for it, or when it has
-// devices (they then get a status saying what is missing).
+// devices (they then get a status saying what is missing). Two slots typed
+// with the same address: the one whose devices' IPX800 was verified there
+// keeps it, the other is not read (see slotConfigs in src/config.js).
 // -----------------------------------------------------------------------------
 
 import { createLogger } from '@gladysassistant/integration-sdk';
 import { IpxApp } from './app.js';
-import { SLOTS, normalizeConfig, slotConfigs, slotTyped } from './config.js';
+import { SLOTS, normalizeConfig, sharedAddresses, slotConfigs, slotTyped } from './config.js';
 import { slotOf, slotPrefix } from './devices.js';
 import { ERRORS, T, both, join, word } from './i18n.js';
 import { StatePublisher } from './publisher.js';
@@ -45,6 +48,8 @@ export class IpxHub {
     this.lastStatus = undefined;
     this.published = undefined;
     this.loading = undefined;
+    /** The configurations saved, handed on one after the other (see configUpdated). */
+    this.updates = Promise.resolve();
     this.controllers = new Map();
     for (let slot = 1; slot <= slots; slot += 1) {
       this.controllers.set(
@@ -104,14 +109,37 @@ export class IpxHub {
 
   // --- Lifecycle -------------------------------------------------------------
 
-  /** One read of the configuration for all the controllers (asked together, read once). */
+  /**
+   * One read of the configuration for all the controllers (asked together, read once): the
+   * configuration of each slot (`slotConfigs`).
+   */
   load(read) {
     this.loading ??= Promise.resolve()
       .then(read)
+      .then(async (raw) => {
+        this.remember(raw);
+        return this.configsOf(raw);
+      })
       .finally(() => {
         this.loading = undefined;
       });
     return this.loading;
+  }
+
+  /**
+   * The configuration of each slot; for slots typed with the same address, the controller key
+   * at which the IPX800 of each one's devices was last verified (from /data, bounded) decides
+   * which one keeps it.
+   */
+  async configsOf(raw) {
+    const verified = new Map();
+    const shared = sharedAddresses(raw, this.controllers.size).flat();
+    await Promise.all(
+      shared.map(async (slot) => {
+        verified.set(slot, await this.controllers.get(slot).verifiedAt());
+      }),
+    );
+    return slotConfigs(raw, this.controllers.size, verified);
   }
 
   remember(raw) {
@@ -122,11 +150,7 @@ export class IpxHub {
     this.publisher.start();
     await Promise.all(
       [...this.controllers].map(([slot, app]) =>
-        app.onConnected(async () => {
-          const raw = await this.load(read);
-          this.remember(raw);
-          return slotConfigs(raw, this.controllers.size).get(slot);
-        }),
+        app.onConnected(async () => (await this.load(read)).get(slot)),
       ),
     );
     // Gladys restarted: what it keeps in memory only, again.
@@ -138,12 +162,18 @@ export class IpxHub {
     );
   }
 
+  /**
+   * A configuration saved: handed to the controllers in the order saved (the slots' /data may
+   * be read in between, for slots typed with the same address), each applying the last one.
+   */
   async configUpdated(raw = {}) {
-    this.remember(raw);
-    const configs = slotConfigs(raw, this.controllers.size);
-    await Promise.all(
-      [...this.controllers].map(([slot, app]) => app.configUpdated(configs.get(slot))),
-    );
+    const run = this.updates.then(async () => {
+      this.remember(raw);
+      const configs = await this.configsOf(raw);
+      return [...this.controllers].map(([slot, app]) => app.configUpdated(configs.get(slot)));
+    });
+    this.updates = run.catch(() => {});
+    await Promise.all(await run);
     await this.pushStatus();
   }
 
@@ -164,7 +194,7 @@ export class IpxHub {
     await this.pushStatus();
   }
 
-  /** The status: the first slot's own when alone, else one line per IPX800 used. */
+  /** The status: the first slot's own when alone, else one part per IPX800 used (" | "). */
   async pushStatus() {
     const slots = this.usedSlots;
     let connected;
@@ -262,7 +292,7 @@ export class IpxHub {
   }
 }
 
-/** Several messages, one per line. */
+/** Several messages, one after the other, separated by " | ". */
 function joinLines(messages) {
   const parts = messages.filter(Boolean);
   if (parts.length <= 1) return parts[0] ?? join();

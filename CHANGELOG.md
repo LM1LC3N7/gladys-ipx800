@@ -15,8 +15,9 @@ the notes of the version's GitHub Release.
 - Up to three IPX800 in one installation (a V5 and a V4, say): "IPX800 #2"
   and "IPX800 #3" in the configuration, each with its model, address, API
   key, relays Gladys may drive and V4 extensions; their devices have their
-  own ids and names ("IPX800 n°2 · Relais 1 (R1)"), the status one line per
-  IPX800. The first one keeps the fields and the device ids of 0.1.2.
+  own ids and names ("IPX800 n°2 · Relais 1 (R1)"), the status one part per
+  IPX800 (one block, separated by " | "). The first one keeps the fields and
+  the device ids of 0.1.2.
 - "Attach the devices" (two clicks): after replacing an IPX800, its devices
   drive the new one.
 
@@ -32,8 +33,13 @@ the notes of the version's GitHub Release.
   are "to be confirmed" (0.1.2 kept only the last IPX800 it read): only Off
   and Frost protection go, to the address 0.1.2 read, until "Attach the
   devices" confirms the IPX800 read (nothing at all when they hold codes
-  that model cannot have). Two IPX800 slots with the same address: the
-  second is not read.
+  that model cannot have, or with another address typed). Devices whose
+  IPX800 is not known (`/data` emptied, Gladys restored on another machine,
+  `/data` unreadable or never written) get their Off and Frost protection at
+  the address typed, nothing else until "Attach the devices". Two IPX800
+  slots with the same address: the one whose devices' IPX800 was checked at
+  that address keeps it, the other is not read and its status says which
+  address to correct.
 - A V4 chosen as "V5" (or the reverse) is recognized and said in the status
   and by "Test the connection", instead of "does not answer" or a refused
   key.
@@ -44,6 +50,16 @@ the notes of the version's GitHub Release.
 - A device deleted: the Discover list is published again at once (a relay
   removed from the list and recreated right away no longer gets back its
   switch).
+- `/data` that does not answer (a frozen disk) no longer stops anything:
+  every read and save of it is waited 1.5 s at most (then unreadable, or not
+  written, and said in the status), one at a time; the reads, the status,
+  "Test the connection" and the Offs go on.
+- The Offs held in memory, and the V5 ids, survive a new session (a new API
+  key saved) even when `/data` cannot keep them; an Off with no V5 id known
+  yet waits for the first read (2.5 s at most) instead of being refused.
+- Where only Off and Frost protection go (devices to confirm, IPX800 not
+  known), an Off the IPX800 does not apply is sent again by the reads, as
+  elsewhere.
 
 ## [0.1.2] - 2026-10-29
 

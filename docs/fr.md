@@ -54,8 +54,9 @@ les champs du haut, et mettez l’autre dans **« IPX800 n°2 »** (modèle,
 adresse avec `:port` si besoin, clé d’API, ses relais pilotables, ses
 extensions V4), un troisième dans « IPX800 n°3 ». Chacun a ses propres
 appareils dans Découverte (« IPX800 n°2 · Relais 1 (R1) »), sa liste de
-relais pilotables et son état sur sa ligne. L’intervalle de lecture,
-l’option de chauffage et la langue sont communs.
+relais pilotables et sa partie de l’état (un seul bloc, les IPX800 séparés
+par « | »). L’intervalle de lecture, l’option de chauffage et la langue sont
+communs.
 
 **Ne changez pas un emplacement d’IPX800 pour en essayer un autre** : les
 appareils déjà créés restent avec leur emplacement. Pour passer d’une V5 à
@@ -64,9 +65,11 @@ une V4, ajoutez la V4 en n°2 au lieu de remplacer la V5.
 ## Chaque IPX800 garde ses appareils
 
 Un appareil créé pour un IPX800 ne commande pas un autre IPX800, même si
-vous changez l’adresse, le port ou le modèle de son emplacement (deux
-limites : une autre V4 mise à la même adresse, voir « Limites », et les
-appareils de la 0.1.2, voir plus bas). L’intégration retient, dans `/data`, à quel IPX800 appartiennent les
+vous changez l’adresse, le port ou le modèle de son emplacement (trois
+limites : une autre V4 mise à la même adresse, voir « Limites » ; les
+appareils de la 0.1.2, voir plus bas ; et les appareils dont l’IPX800 n’est
+pas connu, dont Arrêt et Hors-gel partent vers l’adresse saisie, voir plus
+bas). L’intégration retient, dans `/data`, à quel IPX800 appartiennent les
 appareils de chaque emplacement : une **V5 par son adresse MAC** (relue à
 chaque lecture, gardée sous forme d’empreinte salée), une **V4 par son
 adresse et son port** (son API ne donne pas d’adresse MAC).
@@ -90,8 +93,20 @@ l’IPX800 qu’il lit. Si l’adresse MAC d’une V5 ne peut plus être lue (ap
 une mise à jour de son firmware, par exemple), « Rattacher » la reconnaît
 par son adresse, comme une V4.
 
-Un même IPX800 ne va que dans un emplacement : un emplacement qui reprend
-l’adresse d’un autre n’est pas lu, et l’état le dit.
+Un même IPX800 ne va que dans un emplacement. Quand deux emplacements ont la
+même adresse, celui dont l’IPX800 des appareils a été vérifié à cette
+adresse la garde (sinon le premier) ; l’autre n’est pas lu, rien n’est
+envoyé à ses appareils, pas même un Arrêt, et son état dit quelle adresse
+corriger.
+
+Quand l’IPX800 des appareils **n’est pas connu** (`/data` vidé ou supprimé,
+Gladys restauré sur une autre machine : ses sauvegardes ne contiennent pas
+le `/data` des intégrations ; `/data` illisible, ou impossible à écrire alors
+qu’il ne contient encore rien), rien ne prouve un autre IPX800 à l’adresse
+saisie : Arrêt et Hors-gel y partent, ainsi que les renvois d’un Arrêt que
+les lectures ne montrent pas. L’allumage, les modes de chauffe et les
+valeurs attendent « Rattacher les appareils » (deux clics), et l’état le
+dit.
 
 Quand l’adresse MAC d’une V5 ne peut pas être lue, seuls Arrêt et Hors-gel
 partent, et seulement vers l’adresse où elle a été vérifiée en dernier.
@@ -105,7 +120,8 @@ lu, pas celui pour lequel les appareils ont été créés. **Avant de mettre à
 jour, remettez dans les champs du haut l’IPX800 pour lequel vous avez créé
 les appareils.** Après la mise à jour, les appareils existants restent « à
 confirmer » : seuls Arrêt et Hors-gel leur sont envoyés, et seulement à
-l’adresse que la 0.1.2 lisait. L’état nomme l’IPX800 lu (modèle, adresse
+l’adresse que la 0.1.2 lisait (une autre adresse saisie : rien du tout
+jusqu’à « Rattacher les appareils »). L’état nomme l’IPX800 lu (modèle, adresse
 MAC ou adresse) et le nombre d’appareils. Si ce sont les siens, cliquez deux
 fois « Rattacher les appareils » : tout repart. Sinon, remettez leur IPX800
 dans les champs du haut, et mettez l’autre dans son propre emplacement.
@@ -171,10 +187,18 @@ recréation, l’enlève, avec son historique.
   l’état ne peut pas être écrit dans `/data`.
 
 Un Arrêt ou un Hors-gel n’est refusé que si : l’adresse ou la clé d’API
-manque ; la zone n’est pas connue (V4 : absente des extensions ; V5 : jamais
-lue, même avant un redémarrage) ; la valeur n’est pas l’un des six modes ;
-l’IPX800 n’est pas celui de l’appareil, ou rien ne permet de le savoir
-(voir « Chaque IPX800 garde ses appareils »).
+manque ou n’est pas valide, ou l’emplacement a l’adresse d’un autre
+emplacement qui la garde ; la zone n’est pas connue (V4 : absente des
+extensions ; V5 : jamais lue : ses identifiants sont gardés dans `/data` et
+d’une session à l’autre, et sans eux un Arrêt attend la première lecture
+2,5 s au plus) ; la valeur n’est pas l’un des six modes ; il est prouvé que
+l’IPX800 lu n’est pas celui de l’appareil (autre adresse MAC, autre modèle, V4 à
+une autre adresse, appareils de la 0.1.2 avec des codes que le modèle choisi
+n’a pas, appareils de la 0.1.2 avec une autre adresse saisie que celle de
+la 0.1.2) ; pendant que l’adresse MAC d’une V5 est lue ou ne peut pas
+l’être, à une autre adresse que celle où elle a été vérifiée en dernier
+(voir « Chaque IPX800 garde ses appareils »). Un propriétaire inconnu n’est
+pas un refus : l’Arrêt part vers l’adresse saisie.
 L’extinction d’un relais est refusée si le relais n’est pas listé. Cliqué
 avant que la configuration soit lue dans Gladys (la clé d’API n’est gardée
 que là, jamais dans `/data`), il la demande aussitôt à Gladys et attend 3 s ;
@@ -201,6 +225,15 @@ qui attend un nouvel essai : rien ne part après lui. Un mode envoyé par
 l’intégration avant l’Arrêt et resté sans réponse (coupé par l’Arrêt, par
 exemple), si l’IPX800 l’applique quand même dans les 5 s après son départ,
 n’est pas un changement sur l’IPX800 : l’Arrêt est renvoyé.
+
+`/data` (l’état de l’intégration) est lu et écrit en 1,5 s ou tenu pour
+illisible ou non écrit : un disque qui ne répond pas n’arrête jamais les
+lectures, l’état, « Tester la connexion » ni un Arrêt. Une lecture et une
+écriture à la fois : une écriture qui ne finit pas n’est pas empilée
+(l’état dit que `/data` ne peut pas être écrit, les modes de chauffe et
+« Rattacher les appareils » sont refusés), et l’état du moment est écrit
+dès qu’elle finit. Les arrêts tenus et les identifiants V5 passent d’une
+session à l’autre (nouvelle clé d’API) en mémoire.
 
 ## Commandes
 

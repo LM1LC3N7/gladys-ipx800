@@ -170,7 +170,10 @@ APIs, other modules, not planned here).
 - **Refusals of a protective command**: configuration not read from Gladys
   (the API key lives there only), address or key missing, target unknown
   (V4: not listed; V5: never read, the ids kept in `/data` otherwise),
-  invalid value; switching off a relay not listed.
+  invalid value; switching off a relay not listed. Since the identity of the
+  IPX800 (2026-10-30, r4): another IPX800 proven at the address (see
+  "Identity"), a slot whose address another slot keeps; never an owner that
+  is only not known.
 - **Heating modes** (Eco, Comfort, Comfort -1, Comfort -2): behind
   `allow_heating_modes` (off), checked on arrival and right before the
   request leaves; refused during a protective command on the same zone;
@@ -324,6 +327,77 @@ APIs, other modules, not planned here).
 - `npm test` runs with `--test-timeout=60000` (a stuck test never holds a
   runner).
 
+## Decisions after the review r4 of 7786d42 (2026-10-30)
+
+Reuses the design of the sister modules (gladys-ipx800-v3 a0c3ded,
+gladys-ecodevices-ed3 8b59dc6, gladys-ecodevices-rt2 7ba14dc).
+
+- **B1, /data bounded**: every read and save of /data waited
+  `TIMINGS.storeWait` (1.5 s) at most. A read that does not answer is
+  unreadable (`storeUnreadable`: owner unknown); a save that does not end is
+  a failure (`saveFailed`, `storeLost` for the probe of a start). One read
+  and one save at a time, shared: a save asked while one runs waits for it
+  (within its 1.5 s) then writes the state of now (tickets: a save covers
+  the calls made before it started); a save or read that hangs is never
+  stacked on (the next calls fail at once: each would hold one of the 4
+  threads of libuv's pool, which the DNS lookups of a hostname share, and
+  the Offs would then stop), and once it ends the state of now is written.
+  `fileStore` itself never waits more than 1.5 s behind the save before (a
+  temporary file of its own, an older write that ends later is dropped, not
+  renamed over the newer). The status: "Connected" stays true while the
+  right IPX800 is read (the values are fresh), with "cannot be written to
+  /data" (heating modes and Attach refused); a /data that cannot be read
+  gives the "owner not known" status (Offs only, not connected). When /data
+  reads again, the owner, salt and guards of the file are taken and the
+  verdict worked out again (the MAC of the last round judged under the
+  file's salt).
+- **I1**: in the states where only Offs go (`presumed` at the address 0.1.2
+  read, `unbound`, `unverified` at the address last checked), the reads
+  still check the guards and send them again (3 times at most, then "check
+  on site"), without publishing any value; the status lists them. Not
+  `pending`: a V5 whose MAC is to be read again (after a failed round) gets
+  nothing from a read back before that check (the next round reads it).
+- **I2**: `unbound` (no owner, devices there: /data emptied, deleted,
+  restored on another machine by Gladys Plus, which does not back up /data;
+  or unreadable, or never written): Off / Frost protection go to the address
+  typed whatever /data can hold; switching on, heating modes and values wait
+  for Attach. The 0.1.2 devices holding codes the model cannot have are a
+  proof of another model: their own verdict `unfit` (nothing sent, Offs of
+  /data dropped). Attach is done only once /data keeps it (save checked,
+  reverted otherwise); it keeps the Offs that were already going to this
+  IPX800.
+- **I3**: at a new session of the same controller (a new API key), the Offs
+  held in memory are carried (merged with /data's) and so are the V5 ids of
+  the relays and zones; another controller key carries nothing. A V5 Off
+  with no id known (fresh, lost or unreadable /data) waits for the first
+  round of the session (2.5 s after the click at most), then leaves.
+- **I4**: two slots with the same address: the one whose owner was verified
+  at that address (`owner.at` = its key, not the 0.1.2 presumption) keeps
+  it, otherwise the first one; the other gets `duplicate_of` (and
+  `duplicate_verified`), is not read, refuses everything with "same address
+  as IPX800 #x" and its status names the address to correct. The hub reads
+  the owners (bounded) only when two slots share an address, and hands the
+  configurations saved to the slots in order.
+- m1: forum draft `_lots/hors-lot/ipx800-reply-2.md`, branch 2 corrected
+  (V5 back on top after the update with the V4 on top: nothing is sent to
+  the devices until Attach; one block with " | "; delete the devices
+  created while the V4 was on top, before Attach).
+- m2: tests for N5, N13, N14 (a belt: a failed round also marks the IPX800
+  unread, which Attach refuses first; the test reaches the state through
+  `recheck`), N16.
+- Kept as accepted in r4: case A of 0.1.2 (devices of the V5, V4 typed, then
+  the update) sends the Off to the V4, as 0.1.2 did, said in the status.
+- Mutants of this fix (96: the 58 of r4, anchors moved, and 38 on the new
+  code), each against the whole suite: all killed but five equivalents. H2
+  (a slot seeing every device: `createdDevices` filters by slot again); R4
+  (no fail-fast behind a save that hangs: `bounded` with 0 ms gives the same
+  failure one timer later); R15b (`applyRead` checking the guards where no
+  Off may go: none is held there, or `resendGuard` refuses it at entry and
+  before the byte); R20b (Attach keeping the Offs where no Off went: none is
+  held there but Offs carried from a session of the same address, which
+  were going to it); R28 (no owner check after waiting for the first round:
+  `protective` refuses with the same text before the first byte).
+
 ## Decisions after the review r3 of fa59ae3 (2026-10-30)
 
 - **I1**: the owner taken from a 0.1.2 file is a presumption (`presumed`):
@@ -333,8 +407,9 @@ APIs, other modules, not planned here).
   value published, Discover empty, not connected; the status names the
   IPX800 read (model, MAC or address, device count) and asks to put their
   IPX800 back or to attach. Devices with codes the model cannot have:
-  `unbound`, nothing sent (an Off before the first read neither; the Offs
-  kept by 0.1.2 dropped). Every 0.1.2 user confirms once (two clicks).
+  `unbound` (`unfit` since r4), nothing sent (an Off before the first read
+  neither; the Offs kept by 0.1.2 dropped). Every 0.1.2 user confirms once
+  (two clicks).
 - **I2**: no file, devices there, and the first save of a start fails
   (`storeLost`): owner unknown, as /data unreadable (Offs to the address
   typed, the rest refused, Attach refused while /data cannot be written).

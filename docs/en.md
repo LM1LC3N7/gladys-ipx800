@@ -52,8 +52,8 @@ fields at the top, and put the other one in **"IPX800 #2"** (model, address
 with `:port` if needed, API key, its relays Gladys may drive, its V4
 extensions), a third one in "IPX800 #3". Each has its own devices in
 Discover ("IPX800 #2 · Relay 1 (R1)"), its own list of relays to drive and
-its own line in the status. The poll interval, the heating option and the
-language are shared.
+its own part of the status (one block, the IPX800 separated by " | "). The
+poll interval, the heating option and the language are shared.
 
 **Do not change the slot of an IPX800 to try another one**: the devices
 already created stay with their slot. To go from a V5 to a V4, add the V4
@@ -62,12 +62,13 @@ as #2 instead of replacing the V5.
 ## Each IPX800 keeps its devices
 
 A device created for one IPX800 does not drive another one, even when you
-change the address, the port or the model of its slot (two limits: another
-V4 put at the same address, see "Limits", and the devices of 0.1.2, see
-below). The integration
-keeps in `/data` which IPX800 the devices of each slot belong to: a **V5 by
-its MAC address** (read again at every read, kept as a salted fingerprint),
-a **V4 by its address and port** (its API gives no MAC address).
+change the address, the port or the model of its slot (three limits:
+another V4 put at the same address, see "Limits"; the devices of 0.1.2, see
+below; and devices whose IPX800 is not known, whose Off and Frost protection
+go to the address typed, see below). The integration keeps in `/data`
+which IPX800 the devices of each slot belong to: a **V5 by its MAC
+address** (read again at every read, kept as a salted fingerprint), a **V4
+by its address and port** (its API gives no MAC address).
 
 When the IPX800 read is not theirs (another MAC address, another model, a V4
 at another address), then:
@@ -86,8 +87,18 @@ that slot. A slot without any device created simply takes the IPX800 it
 reads. When the MAC address of a V5 can no longer be read (after a firmware
 update, say), "Attach the devices" knows it by its address, as a V4.
 
-One IPX800 goes in one slot only: a slot holding the address of another one
-is not read, and the status says so.
+One IPX800 goes in one slot only. When two slots hold the same address, the
+one whose devices' IPX800 was checked at that address keeps it (otherwise
+the first one); the other is not read, nothing is sent to its devices, not
+even an Off, and its status says which address to correct.
+
+When the IPX800 of the devices is **not known** (`/data` emptied or deleted,
+Gladys restored on another machine: its backups do not hold the `/data` of
+the integrations; `/data` that cannot be read, or written while it holds
+nothing yet), nothing proves another IPX800 at the address typed: Off and
+Frost protection go there, as do the resends of an Off the reads do not
+show. Switching on, the heating modes and the values wait for "Attach the
+devices" (two clicks), and the status says so.
 
 When the MAC address of a V5 cannot be read, only Off and Frost protection
 leave, and only to the address it was last checked at. When a V5 starts, and
@@ -99,7 +110,8 @@ at most, then leaves for the address it was last checked at.
 the devices were created for. **Before updating, put back in the top fields
 the IPX800 you created the devices for.** After the update, the devices
 already created are "to be confirmed": only Off and Frost protection are
-sent to them, and only to the address 0.1.2 read. The status names the
+sent to them, and only to the address 0.1.2 read (another address typed:
+nothing at all until "Attach the devices"). The status names the
 IPX800 read (model, MAC address or address) and the number of devices. If
 they are its own, click "Attach the devices" twice: everything works again.
 If not, put their IPX800 back in the top fields, and the other one in a slot
@@ -160,10 +172,17 @@ the device, then creating it again, removes it, with its history.
   refused while the state cannot be written to `/data`.
 
 An Off or Frost protection is refused only when: the address or the API key
-is missing; the zone is not known (V4: not listed in the extensions; V5:
-never read, even before a restart); the value is not one of the six modes;
-the IPX800 is not the device's, or nothing tells (see "Each IPX800 keeps its
-devices").
+is missing or not valid, or the slot has the address of another slot that
+keeps it; the zone is not known (V4: not listed in the extensions; V5: never
+read: its ids are kept in `/data` and across a new session, and without them
+an Off waits 2.5 s at most for the first read); the value is not one of the
+six modes; the IPX800 read is proven not to be the device's (another MAC
+address, another model, a V4 at another address, devices of 0.1.2 holding
+codes the model chosen cannot have, devices of 0.1.2 with another address
+than 0.1.2's typed); while the MAC address of a V5 is read or cannot be
+read, at another address than the one it was last checked at (see "Each
+IPX800 keeps its devices"). An unknown owner is no refusal: the Off goes to
+the address typed.
 Off for a relay is refused when the relay is not listed. Clicked before the
 configuration is read from Gladys (the API key is kept there only, never in
 `/data`), it asks Gladys for it at once and waits 3 s; if it has not come,
@@ -188,6 +207,14 @@ cancelled, a Frost protection waiting to be tried again included: it never
 leaves after it. A mode the integration sent before the Off and that got no
 answer (cut by the Off, say), if the IPX800 still applies it in the 5 s
 after it left, is not a change on the IPX800: the Off is sent again.
+
+`/data` (the state of the integration) is read and written within 1.5 s or
+treated as unreadable or not written: a disk that does not answer never
+stops the reads, the status, "Test the connection" nor an Off. One read and
+one save at a time: a save that does not end is not piled on (the status
+says `/data` cannot be written, heating modes and "Attach the devices" are
+refused), and the state of now is written once it ends. The Offs held and
+the V5 ids survive a new session (a new API key) in memory.
 
 ## Commands
 

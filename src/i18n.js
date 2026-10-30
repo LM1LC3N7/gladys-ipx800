@@ -271,8 +271,8 @@ export const T = {
   },
   notAttached: (slot) =>
     both(
-      `The devices of IPX800 #${slot} are not known to belong to the IPX800 read (the state in /data was lost): none of their commands is sent. If they are its own, click "Attach the devices" twice.`,
-      `Rien ne dit que les appareils de l’IPX800 n°${slot} appartiennent à l’IPX800 lu (l’état de /data a été perdu) : aucune de leurs commandes n’est envoyée. Si ce sont les siens, cliquez deux fois « Rattacher les appareils ».`,
+      `The devices of IPX800 #${slot} are not known to belong to the IPX800 read (/data holds nothing: emptied, or Gladys restored on another machine): only Off and Frost protection are sent to it, at the address typed; no value is published. If they are its own, click "Attach the devices" twice.`,
+      `Rien ne dit que les appareils de l’IPX800 n°${slot} appartiennent à l’IPX800 lu (/data ne contient rien : vidé, ou Gladys restauré sur une autre machine) : seuls Arrêt et Hors-gel lui sont envoyés, à l’adresse saisie ; aucune valeur n’est publiée. Si ce sont les siens, cliquez deux fois « Rattacher les appareils ».`,
     ),
   legacyNotAttached: (slot) =>
     both(
@@ -285,17 +285,22 @@ export const T = {
       `Les ${count} appareil(s) de l’IPX800 n°${slot} viennent de la version 0.1.2, qui ne retenait pas l’IPX800 pour lequel ils ont été créés. L’IPX800 lu maintenant est la ${ipx.fr}. S’ils ont été créés pour lui, cliquez deux fois « Rattacher les appareils » (IPX800 n°${slot}). Sinon, remettez le modèle et l’adresse de leur IPX800 dans les champs de l’IPX800 n°${slot}, et celui-ci dans son propre emplacement. D’ici là, ${sameAddress ? 'seuls Arrêt et Hors-gel sont envoyés, à cette adresse (comme le faisait la 0.1.2)' : 'rien ne leur est envoyé'}.`,
     ),
   ownerUnwritable: both(
-    'The state cannot be written to /data and holds nothing yet: which IPX800 the devices belong to is unknown. Only Off and Frost protection are sent, to the address typed, until /data can be written.',
-    'L’état ne peut pas être écrit dans /data, qui ne contient encore rien : on ne sait pas à quel IPX800 appartiennent les appareils. Seuls Arrêt et Hors-gel sont envoyés, à l’adresse saisie, tant que /data ne peut pas être écrit.',
+    'The state cannot be written to /data and holds nothing yet: which IPX800 the devices belong to is unknown. Only Off and Frost protection are sent, to the address typed; no value is published. Once /data can be written, click "Attach the devices" twice if they are its own.',
+    'L’état ne peut pas être écrit dans /data, qui ne contient encore rien : on ne sait pas à quel IPX800 appartiennent les appareils. Seuls Arrêt et Hors-gel sont envoyés, à l’adresse saisie ; aucune valeur n’est publiée. Quand /data pourra être écrit, cliquez deux fois « Rattacher les appareils » si ce sont les siens.',
   ),
-  duplicateSlot: (other) =>
-    both(
-      `Same address as IPX800 #${other}: an IPX800 goes in one slot only. This one is not read; empty its address.`,
-      `Même adresse que l’IPX800 n°${other} : un IPX800 ne va que dans un emplacement. Celui-ci n’est pas lu ; videz son adresse.`,
-    ),
+  duplicateSlot: (slot, other, verified) =>
+    verified
+      ? both(
+          `Same address as IPX800 #${other}, whose devices belong to the IPX800 at that address: IPX800 #${slot} is not read and nothing is sent to its devices. Correct the address of IPX800 #${slot} (the one of its own IPX800).`,
+          `Même adresse que l’IPX800 n°${other}, dont les appareils appartiennent à l’IPX800 à cette adresse : l’IPX800 n°${slot} n’est pas lu et rien n’est envoyé à ses appareils. Corrigez l’adresse de l’IPX800 n°${slot} (celle de son propre IPX800).`,
+        )
+      : both(
+          `Same address as IPX800 #${other}: an IPX800 goes in one slot only. IPX800 #${slot} is not read and nothing is sent to its devices: correct its address, or empty it.`,
+          `Même adresse que l’IPX800 n°${other} : un IPX800 ne va que dans un emplacement. L’IPX800 n°${slot} n’est pas lu et rien n’est envoyé à ses appareils : corrigez son adresse, ou videz-la.`,
+        ),
   ownerUnreadable: both(
-    'The state in /data cannot be read: which IPX800 the devices belong to is unknown, only Off and Frost protection are sent until it can.',
-    'L’état de /data ne peut pas être lu : on ne sait pas à quel IPX800 appartiennent les appareils, seuls Arrêt et Hors-gel sont envoyés d’ici là.',
+    'The state in /data cannot be read: which IPX800 the devices belong to is unknown. Until it can, only Off and Frost protection are sent, to the address typed, and no value is published.',
+    'L’état de /data ne peut pas être lu : on ne sait pas à quel IPX800 appartiennent les appareils. D’ici là, seuls Arrêt et Hors-gel sont envoyés, à l’adresse saisie, et aucune valeur n’est publiée.',
   ),
   attach: {
     notRead: both(
@@ -310,6 +315,14 @@ export const T = {
     unreadable: both(
       'The MAC address of this IPX800 could not be read: try again after the next read.',
       'L’adresse MAC de cet IPX800 n’a pas pu être lue : réessayez après la prochaine lecture.',
+    ),
+    unwritable: both(
+      'Not attached: the state cannot be written to /data (it would be lost at the next restart). Try again once it can (see the status).',
+      'Non rattachés : l’état ne peut pas être écrit dans /data (il serait perdu au prochain redémarrage). Réessayez quand il le pourra (voir l’état).',
+    ),
+    storeUnreadable: both(
+      'Not attached: the state in /data cannot be read now (what it holds is never written over unseen). Try again once it can (see the status).',
+      'Non rattachés : l’état de /data ne peut pas être lu en ce moment (ce qu’il contient n’est jamais écrasé sans être lu). Réessayez quand il le pourra (voir l’état).',
     ),
     confirm: (slot, version, label, count) => {
       const v = version === 'v4' ? 'V4' : 'V5';
@@ -374,9 +387,14 @@ export const ERRORS = {
     'La configuration n’est pas encore lue : rien n’a été envoyé.',
   ),
   noConfig: both(
-    'The address or the API key of the IPX800 is missing: nothing was sent.',
-    'L’adresse ou la clé d’API de l’IPX800 manque : rien n’a été envoyé.',
+    'The address or the API key of the IPX800 is missing or not valid: nothing was sent.',
+    'L’adresse ou la clé d’API de l’IPX800 manque ou n’est pas valide : rien n’a été envoyé.',
   ),
+  duplicateSlot: (slot, other) =>
+    both(
+      `IPX800 #${slot} has the same address as IPX800 #${other} and is not read (see its status): nothing was sent.`,
+      `L’IPX800 n°${slot} a la même adresse que l’IPX800 n°${other} et n’est pas lu (voir son état) : rien n’a été envoyé.`,
+    ),
   unknownTarget: both(
     'This output is not known on the IPX800 (yet): nothing was sent.',
     'Cette sortie n’est pas (encore) connue sur l’IPX800 : rien n’a été envoyé.',
@@ -464,8 +482,13 @@ export const ERRORS = {
   ),
   notAttached: (slot) =>
     both(
-      `It is not known that this device belongs to the IPX800 read (IPX800 #${slot}, see its status): nothing was sent.`,
-      `Rien ne dit que cet appareil appartient à l’IPX800 lu (IPX800 n°${slot}, voir son état) : rien n’a été envoyé.`,
+      `It is not known that this device belongs to the IPX800 read (IPX800 #${slot}, see its status and "Attach the devices"): nothing was sent (Off and Frost protection still are).`,
+      `Rien ne dit que cet appareil appartient à l’IPX800 lu (IPX800 n°${slot}, voir son état et « Rattacher les appareils ») : rien n’a été envoyé (Arrêt et Hors-gel le sont quand même).`,
+    ),
+  otherModelDevices: (slot) =>
+    both(
+      `The devices of IPX800 #${slot} come from version 0.1.2 and were created for another model (see its status): nothing was sent.`,
+      `Les appareils de l’IPX800 n°${slot} viennent de la version 0.1.2 et ont été créés pour un autre modèle (voir son état) : rien n’a été envoyé.`,
     ),
   saveFailed: both(
     'The state could not be written to /data: nothing was sent.',
@@ -474,6 +497,10 @@ export const ERRORS = {
   keptUntilConfig: both(
     'Not sent yet: the configuration is being read from Gladys; kept and sent as soon as it is read.',
     'Pas encore envoyée : la configuration est en cours de lecture dans Gladys ; gardée et envoyée dès sa lecture.',
+  ),
+  keptUntilStart: both(
+    'Not sent yet: the integration is starting (its state in /data is slow to read); kept and sent as soon as it has started.',
+    'Pas encore envoyée : l’intégration démarre (son état dans /data est lent à lire) ; gardée et envoyée dès son démarrage.',
   ),
   protectiveKept: (reason) =>
     both(

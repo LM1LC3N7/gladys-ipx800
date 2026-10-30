@@ -196,4 +196,9 @@ export const TIMINGS = {
   identityWait: 1_500,
   /** "Attach the devices": the second click within this. */
   attachConfirm: MINUTE,
+  /**
+   * A read or a save of /data is waited for this long at most: a frozen disk never holds a
+   * read of the IPX800, a start, the test button nor an Off (unreadable, or not written).
+   */
+  storeWait: 1_500,
 };

@@ -51,7 +51,10 @@ protective: never refused by an option, a pause, a queue or a read, they cut
 the request in flight and are kept in /data and sent again; Eco and Comfort
 behind `allow_heating_modes` (off); one request to the IPX at a time; the API
 key (in the query string of every request) is never logged, nor put in an
-error, a status or /data; success only after a read back.
+error, a status or /data; success only after a read back. /data is read and
+written within 1.5 s or treated as unreadable / not written (never a wait
+that holds a read, a start or an Off); an Off goes to the address typed
+unless another IPX800 is proven there.
 
 ## Rules
 

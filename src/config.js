@@ -226,8 +226,10 @@ export function normalizeConfig(raw = {}) {
     v4Extensions: extensions.codes,
     extensionErrors: extensions.errors,
     allowHeatingModes: flag(raw?.allow_heating_modes, DEFAULTS.allow_heating_modes),
-    // Set by src/hub.js: the address of an earlier slot (one IPX800, one lane of requests).
+    // Set by src/hub.js: the slot that keeps this address (one IPX800, one lane of requests),
+    // and whether its devices' IPX800 was verified there.
     duplicateOf: Number.isInteger(raw?.duplicate_of) ? raw.duplicate_of : undefined,
+    duplicateVerified: raw?.duplicate_verified === true,
     pollInterval: clamp(number(raw?.poll_interval), POLL_INTERVAL, DEFAULTS.poll_interval),
     language: LANGUAGES.includes(language) ? language : DEFAULTS.language,
   };
@@ -254,22 +256,41 @@ export function slotConfig(raw, slot) {
   return out;
 }
 
-/**
- * The configuration of a slot whose address (host and port, whatever the model) is the one of
- * an earlier slot gets `duplicate_of`: it is not read (two lanes would hit one IPX800).
- */
-export function slotConfigs(raw, slots = SLOTS) {
-  const seen = new Map();
-  const out = new Map();
+/** The slots typed with the same address (host and port, whatever the model): [[1, 2]...]. */
+export function sharedAddresses(raw, slots = SLOTS) {
+  const groups = new Map();
   for (let slot = 1; slot <= slots; slot += 1) {
-    const config = slotConfig(raw, slot);
-    const { host, port } = normalizeConfig(config);
-    const address = host ? `${host}:${port}` : '';
-    if (address && seen.has(address)) {
-      out.set(slot, { ...config, duplicate_of: seen.get(address) });
-    } else {
-      if (address) seen.set(address, slot);
-      out.set(slot, config);
+    const { host, port } = normalizeConfig(slotConfig(raw, slot));
+    if (!host) continue;
+    const address = `${host}:${port}`;
+    groups.set(address, [...(groups.get(address) ?? []), slot]);
+  }
+  return [...groups.values()].filter((group) => group.length > 1);
+}
+
+/**
+ * The configuration of each slot. Slots with the same address (two lanes would hit one
+ * IPX800, and its relays would obey two devices): one keeps it, the others get `duplicate_of`
+ * (not read, nothing sent). The one kept is the slot whose devices' IPX800 was verified at
+ * that address (`verified`: slot -> the controller key of its last check, see src/hub.js), so
+ * a typo in another slot never stops the right one; none (or several): the first one.
+ */
+export function slotConfigs(raw, slots = SLOTS, verified = new Map()) {
+  const out = new Map();
+  for (let slot = 1; slot <= slots; slot += 1) out.set(slot, slotConfig(raw, slot));
+  for (const group of sharedAddresses(raw, slots)) {
+    const checked = group.filter((slot) => {
+      const at = verified.get(slot);
+      return Boolean(at) && at === normalizeConfig(out.get(slot)).key;
+    });
+    const keeper = checked.length === 1 ? checked[0] : group[0];
+    for (const slot of group) {
+      if (slot === keeper) continue;
+      out.set(slot, {
+        ...out.get(slot),
+        duplicate_of: keeper,
+        ...(checked.length === 1 ? { duplicate_verified: true } : {}),
+      });
     }
   }
   return out;
@@ -297,4 +318,5 @@ export const sessionKey = (config) =>
     config.apiKey,
     config.addressError,
     config.duplicateOf,
+    config.duplicateVerified,
   ]);
