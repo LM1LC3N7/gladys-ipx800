@@ -471,3 +471,8 @@ gladys-ecodevices-ed3 8b59dc6, gladys-ecodevices-rt2 7ba14dc).
   since, the owner read; else an empty list (published too, the old one
   would stay otherwise). The created devices no longer added as they are.
   `deviceDeleted` republishes (r2 m1).
+
+## Next patch (review r5, 607fc67)
+
+- m1: test the 2.5 s cap for the Off of a V5 with no ids yet (slow first read; reviewer's p16-slow-first-read.mjs, mutant P16).
+- Docs: the "back at the top, nothing sent until Rattacher" refusal is listed under "it is proven that"; it is a rule, not a proof.
