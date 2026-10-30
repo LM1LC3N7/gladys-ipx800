@@ -1,8 +1,9 @@
 # IPX800 pour Gladys
 
 Amène dans Gladys **jusqu’à trois IPX800 V4 ou V5 de GCE Electronics** par
-leur API HTTP locale : leurs relais, ses entrées, les zones de fil pilote de ses extensions
-X-4FP et ses capteurs X-THL (température, humidité, luminosité).
+leur API HTTP locale : leurs relais, leurs entrées, les zones de fil pilote
+de leurs extensions X-4FP et leurs capteurs X-THL (température, humidité,
+luminosité).
 
 > Jamais testé avec un vrai appareil : écrit d’après la documentation GCE de
 > l’API V4 et les bibliothèques libres des intégrations Home Assistant
@@ -62,9 +63,10 @@ une V4, ajoutez la V4 en n°2 au lieu de remplacer la V5.
 
 ## Chaque IPX800 garde ses appareils
 
-Un appareil créé pour un IPX800 ne commande jamais un autre IPX800, même si
-vous changez l’adresse, le port ou le modèle de son emplacement.
-L’intégration retient, dans `/data`, à quel IPX800 appartiennent les
+Un appareil créé pour un IPX800 ne commande pas un autre IPX800, même si
+vous changez l’adresse, le port ou le modèle de son emplacement (deux
+limites : une autre V4 mise à la même adresse, voir « Limites », et les
+appareils de la 0.1.2, voir plus bas). L’intégration retient, dans `/data`, à quel IPX800 appartiennent les
 appareils de chaque emplacement : une **V5 par son adresse MAC** (relue à
 chaque lecture, gardée sous forme d’empreinte salée), une **V4 par son
 adresse et son port** (son API ne donne pas d’adresse MAC).
@@ -79,11 +81,17 @@ une autre adresse), alors :
 - l’état le dit.
 
 Remettez alors le modèle et l’adresse de leur IPX800. Si vous l’avez
-**remplacé** (ou si vous avez changé l’adresse d’une V4), cliquez **deux
-fois** « Rattacher les appareils » (dans la minute), en choisissant
-l’emplacement : ses appareils pilotent alors l’IPX800 lu, avec la liste de
-relais pilotables de l’emplacement. Un emplacement sans aucun appareil créé
-prend simplement l’IPX800 qu’il lit.
+**remplacé**, si vous avez changé l’adresse d’une V4, ou si l’état le
+demande pour des appareils de la 0.1.2, cliquez **deux fois** « Rattacher
+les appareils » (dans la minute), en choisissant l’emplacement : ses
+appareils pilotent alors l’IPX800 lu, avec la liste de relais pilotables de
+l’emplacement. Un emplacement sans aucun appareil créé prend simplement
+l’IPX800 qu’il lit. Si l’adresse MAC d’une V5 ne peut plus être lue (après
+une mise à jour de son firmware, par exemple), « Rattacher » la reconnaît
+par son adresse, comme une V4.
+
+Un même IPX800 ne va que dans un emplacement : un emplacement qui reprend
+l’adresse d’un autre n’est pas lu, et l’état le dit.
 
 Quand l’adresse MAC d’une V5 ne peut pas être lue, seuls Arrêt et Hors-gel
 partent, et seulement vers l’adresse où elle a été vérifiée en dernier.
@@ -92,12 +100,17 @@ relue avant tout envoi : les arrêts gardés partent après cette vérification,
 et un Arrêt cliqué l’attend 1,5 s au plus, puis part vers l’adresse où elle
 a été vérifiée en dernier.
 
-**Depuis la version 0.1.2** : les appareils existants sont rattachés à
-l’IPX800 configuré quand vous mettez à jour, si la configuration n’a pas
-changé depuis. Sinon, ou s’ils ont des codes que ce modèle n’a pas (par ex.
-une zone X-4FP de V5 avec « V4 » choisi), rien ne leur est envoyé. L’état
-demande alors de remettre leur IPX800 ou de cliquer « Rattacher les
-appareils ».
+**Depuis la version 0.1.2** : la 0.1.2 ne retenait que le dernier IPX800
+lu, pas celui pour lequel les appareils ont été créés. **Avant de mettre à
+jour, remettez dans les champs du haut l’IPX800 pour lequel vous avez créé
+les appareils.** Après la mise à jour, les appareils existants restent « à
+confirmer » : seuls Arrêt et Hors-gel leur sont envoyés, et seulement à
+l’adresse que la 0.1.2 lisait. L’état nomme l’IPX800 lu (modèle, adresse
+MAC ou adresse) et le nombre d’appareils. Si ce sont les siens, cliquez deux
+fois « Rattacher les appareils » : tout repart. Sinon, remettez leur IPX800
+dans les champs du haut, et mettez l’autre dans son propre emplacement.
+S’ils ont des codes que ce modèle n’a pas (par ex. une zone X-4FP de V5 avec
+« V4 » choisi), rien ne leur est envoyé, pas même un Arrêt.
 
 ## Ce que vous obtenez
 

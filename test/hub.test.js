@@ -125,7 +125,7 @@ test('a V5 and a V4: their own devices, each command to its own IPX800 only', as
   const message = gladys.fake.connectionStatus.message;
   assert.match(
     message.en,
-    /^IPX800 #1: Connected to the IPX800 V5.*\nIPX800 #2: Connected to the IPX800 V4/s,
+    /^IPX800 #1: Connected to the IPX800 V5.* \| IPX800 #2: Connected to the IPX800 V4/,
   );
   assert.match(message.fr, /IPX800 n°2 : Connecté à l’IPX800 V4/);
   assert.ok(ids().includes('ext:ipx:relay:r1'));
@@ -193,7 +193,7 @@ test('the test button answers for each IPX800; Attach goes to the slot chosen', 
   await start();
   await wait(10_000);
   const answer = await gladys.fake.action('test_connection', {});
-  assert.match(answer.data.message.en, /IPX800 #1: .*\nIPX800 #2: /s);
+  assert.match(answer.data.message.en, /IPX800 #1: .* \| IPX800 #2: /);
   const attach = await gladys.fake.action('attach_devices', { ipx: '2' });
   assert.match(attach.data.message.en, /devices of IPX800 #2 already belong/);
   const none = await gladys.fake.action('attach_devices', { ipx: '7' });
@@ -256,4 +256,38 @@ test('real clock x20: a V5 and a V4 over HTTP, each read at the interval, each c
   assert.equal(v5ack.success, true, v5ack.error);
   assert.deepEqual(v4.writes(), ['SetR=01']);
   assert.deepEqual(v5.writes(), ['io100=true']);
+});
+
+test('m1: the same IPX800 in two slots: the second is not read (one request at a time)', async () => {
+  const { gladys, w5, start, wait, hub } = await hubSetup({
+    config: { ...CONFIG, version_2: 'v5', host_2: V5_HOST },
+  });
+  await start();
+  await wait(30_000);
+  assert.match(gladys.fake.connectionStatus.message.en, /IPX800 #2: Same address as IPX800 #1/);
+  assert.equal(w5.peak, 1);
+  hub.stop();
+});
+
+test('m2: an id of a slot this version does not have: a plain refusal, no crash', async () => {
+  const { gladys, start, hub } = await hubSetup();
+  await start();
+  const ack = await gladys.fake.setValue(
+    { external_id: 'ext:ipx:ipx7:relay:r1' },
+    { external_id: 'ext:ipx:ipx7:relay:r1:switch' },
+    0,
+  );
+  assert.equal(ack.success, false);
+  assert.match(ack.error, /pas \(encore\) connue/);
+  await gladys.fake.deviceCreated({
+    external_id: 'ext:ipx:ipx7:relay:r1',
+    name: 'x',
+    features: [],
+  });
+  await gladys.fake.deviceDeleted({
+    external_id: 'ext:ipx:ipx7:relay:r1',
+    name: 'x',
+    features: [],
+  });
+  hub.stop();
 });

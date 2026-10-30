@@ -6,7 +6,7 @@
 //   - its external ids (`ext:<selector>:ipx<n>:...` for n >= 2, those of
 //     0.1.2 for the first) and its created devices only;
 //   - the connection status: the first slot's own while it is the only one
-//     used, one line per IPX800 otherwise (connected when all of them are);
+//     used, one line per IPX800 otherwise (connected when all of them are), separated by " | " (one block in Gladys);
 //   - the Discover list: the lists of the slots put together;
 //   - the states: one publisher, so that the 300 states a minute of Gladys
 //     hold for all of them.
@@ -16,9 +16,9 @@
 
 import { createLogger } from '@gladysassistant/integration-sdk';
 import { IpxApp } from './app.js';
-import { SLOTS, slotConfig, slotTyped } from './config.js';
+import { SLOTS, normalizeConfig, slotConfigs, slotTyped } from './config.js';
 import { slotOf, slotPrefix } from './devices.js';
-import { T, both, join } from './i18n.js';
+import { ERRORS, T, both, join, word } from './i18n.js';
 import { StatePublisher } from './publisher.js';
 import { fileStore, stateFile } from './store.js';
 
@@ -125,7 +125,7 @@ export class IpxHub {
         app.onConnected(async () => {
           const raw = await this.load(read);
           this.remember(raw);
-          return slotConfig(raw, slot);
+          return slotConfigs(raw, this.controllers.size).get(slot);
         }),
       ),
     );
@@ -140,8 +140,9 @@ export class IpxHub {
 
   async configUpdated(raw = {}) {
     this.remember(raw);
+    const configs = slotConfigs(raw, this.controllers.size);
     await Promise.all(
-      [...this.controllers].map(([slot, app]) => app.configUpdated(slotConfig(raw, slot))),
+      [...this.controllers].map(([slot, app]) => app.configUpdated(configs.get(slot))),
     );
     await this.pushStatus();
   }
@@ -218,16 +219,21 @@ export class IpxHub {
     await Promise.all([...this.controllers.values()].map((app) => app.scan()));
   }
 
+  // An id of a slot this version does not have (`ipx7:`): not ours, a plain refusal.
   deviceCreated(device) {
-    return this.controllerOf(device?.external_id).deviceCreated(device);
+    return this.controllerOf(device?.external_id)?.deviceCreated(device);
   }
 
   deviceDeleted(device) {
-    return this.controllerOf(device?.external_id).deviceDeleted(device);
+    return this.controllerOf(device?.external_id)?.deviceDeleted(device);
   }
 
-  setValue(device, feature, value) {
-    return this.controllerOf(feature?.external_id).setValue(device, feature, value);
+  async setValue(device, feature, value) {
+    const app = this.controllerOf(feature?.external_id);
+    if (!app) {
+      throw new Error(word(ERRORS.unknownTarget, normalizeConfig(this.raw).language));
+    }
+    return app.setValue(device, feature, value);
   }
 
   /** "Test the connection": each IPX800 used, at once (each has its own lane). */
@@ -260,5 +266,6 @@ export class IpxHub {
 function joinLines(messages) {
   const parts = messages.filter(Boolean);
   if (parts.length <= 1) return parts[0] ?? join();
-  return both(parts.map((m) => m.en).join('\n'), parts.map((m) => m.fr).join('\n'));
+  // Gladys shows the status as one block (no line breaks kept): a visible separator.
+  return both(parts.map((m) => m.en).join(' | '), parts.map((m) => m.fr).join(' | '));
 }

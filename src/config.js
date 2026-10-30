@@ -226,6 +226,8 @@ export function normalizeConfig(raw = {}) {
     v4Extensions: extensions.codes,
     extensionErrors: extensions.errors,
     allowHeatingModes: flag(raw?.allow_heating_modes, DEFAULTS.allow_heating_modes),
+    // Set by src/hub.js: the address of an earlier slot (one IPX800, one lane of requests).
+    duplicateOf: Number.isInteger(raw?.duplicate_of) ? raw.duplicate_of : undefined,
     pollInterval: clamp(number(raw?.poll_interval), POLL_INTERVAL, DEFAULTS.poll_interval),
     language: LANGUAGES.includes(language) ? language : DEFAULTS.language,
   };
@@ -252,6 +254,27 @@ export function slotConfig(raw, slot) {
   return out;
 }
 
+/**
+ * The configuration of a slot whose address (host and port, whatever the model) is the one of
+ * an earlier slot gets `duplicate_of`: it is not read (two lanes would hit one IPX800).
+ */
+export function slotConfigs(raw, slots = SLOTS) {
+  const seen = new Map();
+  const out = new Map();
+  for (let slot = 1; slot <= slots; slot += 1) {
+    const config = slotConfig(raw, slot);
+    const { host, port } = normalizeConfig(config);
+    const address = host ? `${host}:${port}` : '';
+    if (address && seen.has(address)) {
+      out.set(slot, { ...config, duplicate_of: seen.get(address) });
+    } else {
+      if (address) seen.set(address, slot);
+      out.set(slot, config);
+    }
+  }
+  return out;
+}
+
 /** True when a slot after the first one has an address or a key typed. */
 export const slotTyped = (raw, slot) =>
   slot === 1 ||
@@ -267,4 +290,11 @@ export const isComplete = (config) =>
 
 /** What a session depends on: a change starts again (and lifts a refused key). */
 export const sessionKey = (config) =>
-  JSON.stringify([config.version, config.host, config.port, config.apiKey, config.addressError]);
+  JSON.stringify([
+    config.version,
+    config.host,
+    config.port,
+    config.apiKey,
+    config.addressError,
+    config.duplicateOf,
+  ]);

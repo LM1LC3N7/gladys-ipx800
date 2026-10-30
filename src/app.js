@@ -156,7 +156,8 @@ export class IpxApp {
      * Is the IPX800 read the one the devices of this slot were made for (the owner in /data)?
      * 'same'; 'pending' (V5 at start: its MAC being read); 'unverified' (V5 whose MAC could
      * not be read); 'different' (another IPX800: nothing sent, its kept Offs dropped);
-     * 'unbound' (devices whose IPX800 is not known for sure: nothing sent).
+     * 'unbound' (devices whose IPX800 is not known for sure: nothing sent); 'presumed' (devices
+     * of 0.1.2: the last controller it read, unconfirmed: Offs only, to that address).
      */
     this.verdict = 'unbound';
     /** The identity of the last round: { kind: 'mac', id, label } | { kind: 'address', id }. */
@@ -173,6 +174,8 @@ export class IpxApp {
     this.configGeneration = 0;
     this.memory = emptyMemory();
     this.storeUnreadable = false;
+    /** No file, devices there, and the first save failed: owner unknown (see startNow). */
+    this.storeLost = false;
     this.saveFailed = false;
     this.client = undefined;
     this.generation = 0;
@@ -423,6 +426,13 @@ export class IpxApp {
     this.adoptMemory(normalizeMemory(loaded, now), now, mono);
     this.memoryLoaded = true;
     if (!this.memory.salt && !this.storeUnreadable) this.memory.salt = this.random();
+    // No file, devices there, and /data cannot be written (never could, say): the owner of the
+    // devices is not known, as with a file that cannot be read (never "lost": Offs still go).
+    this.storeLost = false;
+    if (loaded === null && !this.storeUnreadable && this.createdDevices().length > 0) {
+      this.storeLost = !(await this.saveMemory());
+      if (generation !== this.generation) return;
+    }
     if (this.ownPublisher) this.publisher.start();
     const missing = this.configMessage();
     if (missing) {
@@ -436,6 +446,9 @@ export class IpxApp {
     // and the configuration (a V5 owner is checked by its MAC first, see below).
     this.verdict = this.verdictAtStart();
     if (this.verdict === 'different') this.dropGuards('another IPX800 is configured');
+    // Kept for an IPX800 that is not this one, or not known for sure: never sent (a 0.1.2 file
+    // whose devices cannot be this model's, say).
+    if (this.verdict === 'unbound' && !this.ownerUnknown) this.dropGuards('owner not known');
     this.client = new IpxClient({
       version: this.config.version,
       host: this.config.host,
@@ -475,7 +488,7 @@ export class IpxApp {
     if (generation !== this.generation) return;
     if (this.refusedApplies()) {
       await this.setStatus(false, T.refused);
-    } else if (this.verdict === 'different' || this.verdict === 'unbound') {
+    } else if (['different', 'unbound', 'presumed'].includes(this.verdict)) {
       // Known before any read: said at once, not at the next round.
       await this.setStatus(false, this.statusMessage());
     } else {
@@ -626,6 +639,7 @@ export class IpxApp {
   }
 
   configMessage() {
+    if (this.config.duplicateOf !== undefined) return T.duplicateSlot(this.config.duplicateOf);
     if (this.config.addressError === 'path') return T.addressPath;
     if (this.config.addressError === 'https') return T.addressHttps;
     if (this.config.addressError === 'invalid') return T.addressInvalid;
@@ -735,6 +749,7 @@ export class IpxApp {
     this.syncMemory();
     try {
       await this.store.save(this.memory);
+      this.storeLost = false;
       if (this.saveFailed) {
         this.saveFailed = false;
         this.logger.info('ipx800: /data written again');
@@ -1053,10 +1068,13 @@ export class IpxApp {
 
   /** The counts and the warnings of the last round. */
   statusMessage() {
-    if (this.verdict === 'different' || this.verdict === 'unbound') {
+    if (
+      ['different', 'unbound', 'presumed'].includes(this.verdict) ||
+      (this.verdict === 'unverified' && !this.statusConnected())
+    ) {
       return join(
         this.verdictMessage(),
-        this.saveFailed || this.storeUnreadable ? T.storeProblem : undefined,
+        this.saveFailed && !this.ownerUnknown ? T.storeProblem : undefined,
       );
     }
     const counts = { relays: 0, inputs: 0, zones: 0, thl: 0 };
@@ -1068,11 +1086,7 @@ export class IpxApp {
     }
     const parts = [
       T.connected(this.config.version, counts),
-      this.verdict === 'unverified'
-        ? this.statusConnected()
-          ? T.identityUnreadable
-          : T.identityUnreadableNew
-        : undefined,
+      this.verdict === 'unverified' ? T.identityUnreadable : undefined,
       ...this.relayHints(),
     ];
     if (this.config.relayErrors.length > 0) {
@@ -1360,11 +1374,17 @@ export class IpxApp {
     return !this.createdDevices().some((d) => impossible(this.parseId(d.external_id).code));
   }
 
+  /** /data cannot be read, or cannot be written while it holds nothing: owner unknown. */
+  get ownerUnknown() {
+    return this.storeUnreadable || this.storeLost;
+  }
+
   /** Before any read: from /data and the configuration only. */
   verdictAtStart() {
     const owner = this.memory.owner;
-    if (this.storeUnreadable || !owner) return 'unbound';
-    if (owner.legacy && !this.devicesFitModel()) return 'unbound';
+    if (this.ownerUnknown || !owner) return 'unbound';
+    // 0.1.2 kept the controller it read last, not the one the devices were made for.
+    if (owner.legacy) return this.devicesFitModel() ? 'presumed' : 'unbound';
     if (owner.kind === 'mac') return this.config.version === 'v5' ? 'pending' : 'different';
     return owner.id === this.config.key ? 'same' : 'different';
   }
@@ -1374,7 +1394,7 @@ export class IpxApp {
     const owner = this.memory.owner;
     const key = this.config.key;
     // /data unreadable is not empty: no owner is set over it (protective commands only).
-    if (this.storeUnreadable) return 'unbound';
+    if (this.ownerUnknown) return 'unbound';
     const hasDevices = this.createdDevices().length > 0;
     const bind = (why) => {
       this.memory.owner =
@@ -1388,8 +1408,10 @@ export class IpxApp {
       return 'same';
     };
     if (!owner) return hasDevices ? 'unbound' : bind('first read');
-    if (owner.legacy && !this.devicesFitModel()) {
-      return hasDevices ? 'unbound' : bind('no device left');
+    if (owner.legacy) {
+      // A presumption only (the last controller 0.1.2 read): confirmed by "Attach the devices".
+      if (!hasDevices) return bind('no device left');
+      return this.devicesFitModel() ? 'presumed' : 'unbound';
     }
     let verdict;
     if (owner.kind === 'mac') {
@@ -1480,10 +1502,12 @@ export class IpxApp {
         return true;
       case 'pending':
       case 'unverified':
+      case 'presumed':
+        // The address last checked (for 'presumed', the one 0.1.2 read last, as 0.1.2 did).
         return protective && this.memory.owner?.at === this.config.key;
       case 'unbound':
-        // /data unreadable: its owner unknown, the Offs go to the address typed (as before).
-        return protective && this.storeUnreadable;
+        // /data unreadable or never written: owner unknown, the Offs go to the address typed.
+        return protective && this.ownerUnknown;
       default:
         return false;
     }
@@ -1518,16 +1542,41 @@ export class IpxApp {
         return this.memory.owner?.at === this.config.key
           ? ERRORS.identityUnread
           : ERRORS.newAddress(this.slot);
+      case 'presumed':
+        return ERRORS.toConfirm(this.slot);
       default:
-        return this.storeUnreadable ? ERRORS.saveFailed : ERRORS.notAttached(this.slot);
+        if (this.ownerUnknown) return ERRORS.ownerUnknown;
+        return this.memory.owner?.legacy
+          ? ERRORS.toConfirm(this.slot)
+          : ERRORS.notAttached(this.slot);
     }
+  }
+
+  /** The IPX800 of this slot as the user knows it: "V5 (MAC …34:56)" or "V4 at 192.168.1.60". */
+  shownIpx() {
+    const v = this.config.version === 'v4' ? 'V4' : 'V5';
+    const address =
+      this.config.port === 80 ? this.config.host : `${this.config.host}:${this.config.port}`;
+    return this.seen?.label
+      ? both(`${v} (MAC …${this.seen.label})`, `${v} (MAC …${this.seen.label})`)
+      : both(`${v} at ${address}`, `${v} à ${address}`);
   }
 
   verdictMessage() {
     if (this.verdict === 'different') {
       return T.otherIpx(this.slot, this.config.version, this.seen?.label);
     }
+    if (this.verdict === 'unverified') return T.identityUnreadableNew;
+    if (this.verdict === 'presumed') {
+      return T.legacyConfirm(
+        this.slot,
+        this.shownIpx(),
+        this.createdDevices().length,
+        this.memory.owner?.at === this.config.key,
+      );
+    }
     if (this.storeUnreadable) return T.ownerUnreadable;
+    if (this.storeLost) return T.ownerUnwritable;
     return this.memory.owner?.legacy ? T.legacyNotAttached(this.slot) : T.notAttached(this.slot);
   }
 
@@ -1541,15 +1590,19 @@ export class IpxApp {
       return T.attach.notRead;
     }
     if (this.verdict === 'same') return T.attach.already(this.slot);
-    if (this.storeUnreadable) return T.storeProblem;
-    if (this.verdict === 'unverified' || this.verdict === 'pending') return T.attach.unreadable;
+    // Kept nowhere (until the next restart only): refused, said.
+    if (this.ownerUnknown || this.saveFailed) return T.storeProblem;
+    if (this.verdict === 'pending') return T.attach.unreadable;
     const mono = this.monotonic();
     const id = this.seen?.id ?? this.config.key;
     const count = this.createdDevices().length;
     const ask = this.attachAsk;
     if (!ask || ask.id !== id || mono - ask.at > TIMINGS.attachConfirm) {
       this.attachAsk = { at: mono, id };
-      return T.attach.confirm(this.slot, this.config.version, this.seen?.label, count);
+      // A V5 whose MAC cannot be read (any more): attached by its address, as a V4.
+      return this.seen?.kind === 'mac'
+        ? T.attach.confirm(this.slot, this.config.version, this.seen.label, count)
+        : T.attach.confirmAddress(this.slot, this.shownIpx(), count, this.config.version === 'v5');
     }
     this.attachAsk = undefined;
     const seen = this.seen;

@@ -324,6 +324,31 @@ APIs, other modules, not planned here).
 - `npm test` runs with `--test-timeout=60000` (a stuck test never holds a
   runner).
 
+## Decisions after the review r3 of fa59ae3 (2026-10-30)
+
+- **I1**: the owner taken from a 0.1.2 file is a presumption (`presumed`):
+  0.1.2 kept the controller it read last, not the one the devices were made
+  for (cce66's state: V5 devices, V4 typed, then the update). Until "Attach
+  the devices": Off / Frost protection only, to the address 0.1.2 read; no
+  value published, Discover empty, not connected; the status names the
+  IPX800 read (model, MAC or address, device count) and asks to put their
+  IPX800 back or to attach. Devices with codes the model cannot have:
+  `unbound`, nothing sent (an Off before the first read neither; the Offs
+  kept by 0.1.2 dropped). Every 0.1.2 user confirms once (two clicks).
+- **I2**: no file, devices there, and the first save of a start fails
+  (`storeLost`): owner unknown, as /data unreadable (Offs to the address
+  typed, the rest refused, Attach refused while /data cannot be written).
+- m1: a slot whose host:port is an earlier slot's is not read
+  (`duplicate_of` from `slotConfigs`). Not detected: one V5 typed by name in
+  one slot and by IP in another (its MAC would tell; not done).
+- m2: an id `ipx4:`..`ipx9:` gets a plain refusal.
+- m3: Attach works on `unverified` (MAC unreadable for good): the owner is
+  then the address, said in the confirmation.
+- m4: docs (intro, "does not drive another one" with its two limits, 0.1.2,
+  Attach), a status of a non connected `unverified` without "Connected",
+  the slots' status joined with " | " (Gladys shows it as one block).
+- m5: tests for I10, I15, I16, I24, I28, I31, I32.
+
 ## Decisions after cce66's V4 (2026-10-30)
 
 - **Identity (owner)**: the ids hold no trace of the IPX800 (the first slot
@@ -342,16 +367,16 @@ APIs, other modules, not planned here).
   without devices takes the IPX800 read. The MAC is read every V5 round
   (one more request); read backs within 20 s of a command do not re-read it
   (a box replaced within 20 s is not a case).
-- **Migration from 0.1.2**: a file without `format` makes its controller key
-  the owner, marked `legacy`; kept when the configuration still has that key
-  and no created device holds a code the model cannot have (V5 only:
+- **Migration from 0.1.2** (changed by r3 I1, above): a file without
+  `format` makes its controller key the owner, marked `legacy`; a device
+  code the model cannot have makes it `unbound` (V5 only:
   `x8r|x8d|x24d|x4fp|xthl<id>`; V4 only: `fp`, `thl`, `r9+`, `d9+`).
-  Otherwise "Attach the devices". Known limit: 0.1.2 relays made on a V5,
-  then a V4 typed in the same slot before the update, relays only: they stay
-  with that V4 (nothing tells them apart), as in 0.1.2.
+  otherwise `presumed` until "Attach the devices" (Offs only, to the address
+  0.1.2 read).
 - **Attach the devices**: an action with the slot as a select field, two
   clicks within a minute on the same IPX800 read; refused when nothing was
-  read, the MAC is unreadable or /data unreadable.
+  read, at start before the MAC is read, or /data unreadable / not
+  writable; a V5 whose MAC cannot be read is attached by its address.
 - **Several IPX800**: one integration, up to 3 slots (as air-Q, Remootio):
   `version_n`, `host_n` (port in the address), `api_key_n`, `relays_n`,
   `v4_extensions_n`; poll interval, heating option and language shared.

@@ -1,8 +1,9 @@
 # IPX800 for Gladys
 
 Brings **up to three GCE Electronics IPX800 V4 or V5** into Gladys through
-their local HTTP API: their relays, its digital inputs, the pilot-wire zones of its X-4FP
-extensions and its X-THL sensors (temperature, humidity, luminosity).
+their local HTTP API: their relays, their digital inputs, the pilot-wire
+zones of their X-4FP extensions and their X-THL sensors (temperature,
+humidity, luminosity).
 
 > Never tested with a real device: written from the GCE documentation of the
 > V4 API and from the open-source libraries of the Home Assistant
@@ -60,8 +61,10 @@ as #2 instead of replacing the V5.
 
 ## Each IPX800 keeps its devices
 
-A device created for one IPX800 never drives another one, even when you
-change the address, the port or the model of its slot. The integration
+A device created for one IPX800 does not drive another one, even when you
+change the address, the port or the model of its slot (two limits: another
+V4 put at the same address, see "Limits", and the devices of 0.1.2, see
+below). The integration
 keeps in `/data` which IPX800 the devices of each slot belong to: a **V5 by
 its MAC address** (read again at every read, kept as a salted fingerprint),
 a **V4 by its address and port** (its API gives no MAC address).
@@ -76,10 +79,15 @@ at another address), then:
 - the status says so.
 
 Then put back the model and the address of their IPX800. If you **replaced**
-it (or changed the address of a V4), click **"Attach the devices" twice**
-(within a minute), choosing the slot: its devices then drive the IPX800
-read, with the relays listed for that slot. A slot without any device
-created simply takes the IPX800 it reads.
+it, changed the address of a V4, or when the status asks for it for devices
+of 0.1.2, click **"Attach the devices" twice** (within a minute), choosing
+the slot: its devices then drive the IPX800 read, with the relays listed for
+that slot. A slot without any device created simply takes the IPX800 it
+reads. When the MAC address of a V5 can no longer be read (after a firmware
+update, say), "Attach the devices" knows it by its address, as a V4.
+
+One IPX800 goes in one slot only: a slot holding the address of another one
+is not read, and the status says so.
 
 When the MAC address of a V5 cannot be read, only Off and Frost protection
 leave, and only to the address it was last checked at. When a V5 starts, and
@@ -87,11 +95,16 @@ after a failed read, its MAC address is read again before anything is sent:
 the Offs kept leave after that check, and an Off clicked waits for it 1.5 s
 at most, then leaves for the address it was last checked at.
 
-**Coming from 0.1.2**: the devices already created are attached to the
-IPX800 configured when you update, if the configuration did not change
-since. Otherwise, or when they hold codes that model does not have (an X-4FP
-zone of a V5 with "V4" chosen, say), nothing is sent to them. The status
-then asks to put their IPX800 back or to click "Attach the devices".
+**Coming from 0.1.2**: 0.1.2 kept only the last IPX800 it read, not the one
+the devices were created for. **Before updating, put back in the top fields
+the IPX800 you created the devices for.** After the update, the devices
+already created are "to be confirmed": only Off and Frost protection are
+sent to them, and only to the address 0.1.2 read. The status names the
+IPX800 read (model, MAC address or address) and the number of devices. If
+they are its own, click "Attach the devices" twice: everything works again.
+If not, put their IPX800 back in the top fields, and the other one in a slot
+of its own. When they hold codes that model does not have (an X-4FP zone of
+a V5 with "V4" chosen, say), nothing is sent to them, not even an Off.
 
 ## What you get
 

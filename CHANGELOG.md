@@ -29,8 +29,11 @@ the notes of the version's GitHub Release.
   by its address): another IPX800 gets none of their commands, not even an
   Off, the Offs kept for the old one are dropped, none of its values is
   published onto them, and the status says what to do. The devices of 0.1.2
-  are attached to the IPX800 configured, unless the configuration changed
-  since or they hold codes that model cannot have.
+  are "to be confirmed" (0.1.2 kept only the last IPX800 it read): only Off
+  and Frost protection go, to the address 0.1.2 read, until "Attach the
+  devices" confirms the IPX800 read (nothing at all when they hold codes
+  that model cannot have). Two IPX800 slots with the same address: the
+  second is not read.
 - A V4 chosen as "V5" (or the reverse) is recognized and said in the status
   and by "Test the connection", instead of "does not answer" or a refused
   key.

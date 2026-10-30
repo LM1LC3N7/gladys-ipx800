@@ -10,7 +10,7 @@ inputs, pilot-wire zones of the X-4FP, X-THL sensors.
 - Relays: read only unless listed in "Relays Gladys may drive".
 - The API key is never written in the logs nor in `/data`.
 - Each IPX800 keeps its devices (a V5 known by its MAC address, a V4 by its
-  address): another IPX800 never gets their commands.
+  address): another IPX800 does not get their commands (limits in the guide).
 
 Never tested with a real device. Not affiliated with GCE Electronics.
 

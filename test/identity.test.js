@@ -80,6 +80,10 @@ test('cce66: V5 devices, then the address and key of a V4 typed: nothing reaches
     assert.equal(ack.success, false);
   }
   assert.equal(w4.writes().length, 0, 'not one write to the V4');
+  // A device event (renamed, say) publishes no value of the V4 either (I31).
+  await gladys.fake.deviceUpdated(
+    gladys.devices.find((d) => d.external_id === devices[1].external_id),
+  );
   await app.flush();
   assert.notEqual(
     gladys.fake.lastState(F('relay', 'r2', 'switch')),
@@ -196,7 +200,8 @@ test('MAC unreadable: an Off still goes, a switch-on is refused; at a new addres
   await gladys.fake.configUpdated({ ...CONFIG.v5, host: '192.168.1.77', relays: 'R1' });
   await wait(10 * SECOND);
   assert.equal(gladys.fake.connectionStatus.connected, false);
-  assert.match(message(gladys), /At this new address, its MAC address could not be read/);
+  assert.match(message(gladys), /^At this new address, its MAC address could not be read/);
+  assert.doesNotMatch(message(gladys), /Connected/);
   assert.deepEqual(discovered(gladys), []);
   const off = await cmd(device, F('relay', 'r1', 'switch'), 0);
   assert.match(off.error, /nouvelle adresse/);
@@ -276,12 +281,12 @@ test('a slot whose devices are all gone takes the IPX800 read as its owner', asy
 
 // --- 0.1.2 -----------------------------------------------------------------------------
 
-test('0.1.2 /data of this V5: an Off before the first read goes, then its MAC is the owner', async () => {
+test('0.1.2 /data of this V5 (case B): Offs to that address only until "Attach the devices" confirms', async () => {
   const devices = [switchOf('r1'), created('pilot-wire', 'x4fp7-1')];
   const store = memoryStore(
     legacyMemory(V5_RELAYS, { layout: { r1: { kind: 'relay', state: 110, command: 100 } } }),
   );
-  const { app, cmd, world, wait } = await setup({
+  const { app, gladys, cmd, world, wait } = await setup({
     version: 'v5',
     config: V5_RELAYS,
     devices,
@@ -295,46 +300,93 @@ test('0.1.2 /data of this V5: an Off before the first read goes, then its MAC is
   await starting;
   // The round the Off cut comes back at the interval (8 requests of 300 ms).
   await wait(15 * SECOND);
+  assert.equal(app.verdict, 'presumed');
+  assert.equal(gladys.fake.connectionStatus.connected, false);
+  assert.match(
+    message(gladys),
+    /come from version 0\.1\.2.*The IPX800 read now is the V5 \(MAC …5e:00:01\)/,
+  );
+  assert.match(message(gladys), /only Off and Frost protection are sent, to this address/);
+  assert.doesNotMatch(message(gladys), /replaced|not the one/);
+  assert.deepEqual(discovered(gladys), []);
+  const on = await cmd(devices[0], F('relay', 'r1', 'switch'), 1);
+  assert.match(on.error, /vient de la version 0\.1\.2/);
+  assert.equal(world.writes().length, 1);
+  world.latency = 20;
+  await gladys.fake.action('attach_devices', { ipx: '1' });
+  const done = await gladys.fake.action('attach_devices', { ipx: '1' });
+  assert.match(done.data.message.en, /Done/);
   assert.equal(store.data.owner.kind, 'mac');
   assert.equal(store.data.owner.legacy, undefined);
   assert.equal(store.data.format, 2);
   assert.equal((await cmd(devices[0], F('relay', 'r1', 'switch'), 1)).success, true);
+  assert.equal(gladys.fake.connectionStatus.connected, true);
   app.stop();
 });
 
-test('0.1.2 /data of a V4 config, devices made on a V5 (an X-4FP zone): nothing sent, said', async () => {
+test('0.1.2 /data of a V4 config, devices made on a V5 (an X-4FP zone): nothing sent, not even an Off before the first read', async () => {
   const devices = [switchOf('r1'), switchOf('r2'), created('pilot-wire', 'x4fp7-1')];
   const { world, w4 } = twoIpx();
-  const { app, gladys, start, cmd } = await setup({
+  w4.latency = 500;
+  const { app, gladys, cmd, wait } = await setup({
     config: V4_THERE,
     devices,
     world,
-    store: memoryStore(legacyMemory(V4_THERE)),
+    store: memoryStore(
+      legacyMemory(V4_THERE, { guards: [{ code: 'r1', kind: 'relay', value: 0 }] }),
+    ),
   });
-  await start();
-  assert.match(message(gladys), /created with an earlier version for another model/);
-  assert.match(message(gladys, 'fr'), /version précédente pour un autre modèle/);
+  const starting = app.connected(V4_THERE);
+  await wait(20);
+  const early = await cmd(devices[0], F('relay', 'r1', 'switch'), 0);
+  assert.equal(early.success, false, 'an Off before the first read: refused (I10)');
+  await starting;
+  await wait(2 * SECOND);
+  assert.match(message(gladys), /hold codes this model does not have/);
+  assert.match(message(gladys, 'fr'), /ont des codes que ce modèle n’a pas/);
   assert.deepEqual(discovered(gladys), []);
   for (const value of [0, 1]) {
     assert.equal((await cmd(devices[0], F('relay', 'r1', 'switch'), value)).success, false);
   }
-  assert.equal(w4.writes().length, 0);
+  assert.equal(w4.writes().length, 0, 'nor the Off kept by 0.1.2');
   app.stop();
 });
 
-test('0.1.2 /data of a V4 config, relays only: they stay with that V4 (nothing tells them apart)', async () => {
-  const devices = [switchOf('r1')];
-  const { world, w4 } = twoIpx();
-  const { app, store, start, cmd } = await setup({
+test('cce66, case A: 0.1.2 left on the V4 with the V5 relays: presumed, then the guide, then Attach', async () => {
+  const devices = [switchOf('r1'), switchOf('r2')];
+  const { world, w4, w5 } = twoIpx();
+  const store = memoryStore(legacyMemory(V4_THERE));
+  const { app, gladys, start, wait, cmd } = await setup({
     config: V4_THERE,
     devices,
     world,
-    store: memoryStore(legacyMemory(V4_THERE)),
+    store,
   });
   await start();
-  assert.equal((await cmd(devices[0], F('relay', 'r1', 'switch'), 1)).success, true);
+  assert.equal(app.verdict, 'presumed');
+  assert.equal(gladys.fake.connectionStatus.connected, false);
+  assert.match(message(gladys), /The IPX800 read now is the V4 at 192\.168\.1\.60/);
+  assert.match(message(gladys), /put the model and the address of their IPX800 back/);
+  const on = await cmd(devices[0], F('relay', 'r1', 'switch'), 1);
+  assert.equal(on.success, false, 'the V5 relays no longer drive the V4');
+  const off = await cmd(devices[0], F('relay', 'r1', 'switch'), 0);
+  assert.equal(off.success, true, 'an Off to the address 0.1.2 read, as 0.1.2 did');
   assert.equal(w4.writes().length, 1);
-  assert.equal(store.data.owner.kind, 'address');
+  await app.flush();
+  assert.equal(gladys.fake.lastState(F('relay', 'r1', 'switch')), undefined, 'no V4 value on them');
+  // The guide: the V5 back in the top fields.
+  await gladys.fake.configUpdated(V5_RELAYS);
+  await wait(10 * SECOND);
+  assert.match(message(gladys), /The IPX800 read now is the V5 \(MAC …5e:00:01\)/);
+  assert.match(message(gladys), /nothing is sent to them/);
+  assert.doesNotMatch(message(gladys), /replaced|not the one/);
+  assert.equal((await cmd(devices[0], F('relay', 'r1', 'switch'), 0)).success, false);
+  assert.equal(w5.writes().length, 0);
+  await gladys.fake.action('attach_devices', { ipx: '1' });
+  await gladys.fake.action('attach_devices', { ipx: '1' });
+  assert.equal((await cmd(devices[0], F('relay', 'r1', 'switch'), 1)).success, true);
+  assert.equal(w5.writes().length, 1);
+  assert.equal(w4.writes().length, 1);
   app.stop();
 });
 
@@ -582,5 +634,148 @@ test('a command waiting in the queue is refused right before it leaves when anot
   assert.equal(a.success !== undefined, true);
   assert.match(b.error, /n’est pas celui/);
   assert.equal(world.writes().length, 1, 'the second never left');
+  app.stop();
+});
+
+// --- r3 -----------------------------------------------------------------------------------
+
+test('I2: no file, devices there, /data never writable: after a restart the Off of a listed relay goes', async () => {
+  const device = switchOf('r1');
+  const store = memoryStore();
+  store.fail = true;
+  const { app, gladys, start, cmd, world } = await setup({
+    config: { ...CONFIG.v4, relays: 'R1' },
+    devices: [device],
+    store,
+    fresh: true,
+  });
+  await start();
+  assert.match(message(gladys), /cannot be written to \/data and holds nothing yet/);
+  assert.equal((await cmd(device, F('relay', 'r1', 'switch'), 0)).success, true);
+  assert.equal(world.writes().length, 1);
+  const on = await cmd(device, F('relay', 'r1', 'switch'), 1);
+  assert.match(on.error, /ni lu ni écrit/);
+  const attach = await gladys.fake.action('attach_devices', { ipx: '1' });
+  assert.match(attach.data.message.en, /cannot be written to \/data/, 'kept nowhere: refused');
+  assert.equal(world.writes().length, 1);
+  app.stop();
+});
+
+test('m3: a V5 whose MAC cannot be read any more: Attach by its address, said so', async () => {
+  const device = switchOf('r1');
+  const world = fakeIpx({ version: 'v5', mac: undefined });
+  const { app, gladys, store, start, cmd } = await setup({
+    version: 'v5',
+    config: { ...CONFIG.v5, relays: 'R1' },
+    devices: [device],
+    world,
+  });
+  await start();
+  assert.equal(app.verdict, 'unverified');
+  const first = await gladys.fake.action('attach_devices', { ipx: '1' });
+  assert.match(
+    first.data.message.en,
+    /to the IPX800 V5 at 192\.168\.1\.50, known by its address \(its MAC address cannot be read\)/,
+  );
+  await gladys.fake.action('attach_devices', { ipx: '1' });
+  assert.equal(store.data.owner.kind, 'address');
+  assert.equal((await cmd(device, F('relay', 'r1', 'switch'), 1)).success, true);
+  app.stop();
+});
+
+const sent = (world) => world.writes().filter((r) => r.sentAt !== undefined);
+
+test('I15: a kept Off sent again checks the owner right before its first byte', async () => {
+  const device = switchOf('r1');
+  const world = fakeIpx({ version: 'v5' });
+  const { app, start, cmd, wait } = await setup({
+    version: 'v5',
+    config: { ...CONFIG.v5, relays: 'R1' },
+    devices: [device],
+    world,
+  });
+  await start();
+  world.ignoreWrites = true;
+  world.io.set(110, true);
+  await cmd(device, F('relay', 'r1', 'switch'), 0);
+  const before = sent(world).length;
+  world.connectDelay = (r) => (r.method === 'PUT' ? 300 : 0);
+  app.resendGuard(app.guards.get('r1'));
+  await wait(100);
+  app.verdict = 'different';
+  await wait(1000);
+  assert.equal(sent(world).length, before, 'never left for another IPX800');
+  app.stop();
+});
+
+test('I16, I32: a clicked Off checks the owner before each try and stops trying', async () => {
+  const device = switchOf('r1');
+  const world = fakeIpx({ version: 'v5' });
+  const { app, start, act, gladys, wait } = await setup({
+    version: 'v5',
+    config: { ...CONFIG.v5, relays: 'R1' },
+    devices: [device],
+    world,
+  });
+  await start();
+  world.connectDelay = (r) => (r.method === 'PUT' ? 30 : 0);
+  const puts = () => world.requests.filter((r) => r.method === 'PUT').length;
+  const ack = gladys.fake.setValue(device, { external_id: F('relay', 'r1', 'switch') }, 0);
+  await wait(10);
+  app.verdict = 'different';
+  const result = await act(ack);
+  assert.equal(result.success, false);
+  assert.match(result.error, /n’est pas celui/);
+  assert.equal(sent(world).length, 0, 'I16: not sent once another IPX800 is found');
+  assert.equal(puts(), 1, 'I32: no new try');
+  app.stop();
+});
+
+test('I24: the V4 probe wants "Success": any JSON answer is not a V4', async () => {
+  const transport = async (options, { onSent }) => {
+    onSent?.();
+    const v4 = options.path.startsWith('/api/xdevices.json');
+    return { status: v4 ? 200 : 404, body: Buffer.from(JSON.stringify({ hello: 1 })) };
+  };
+  const { app, gladys, start } = await setup({
+    version: 'v5',
+    world: { transport, set clock(_) {} },
+    fresh: true,
+  });
+  await start();
+  assert.doesNotMatch(message(gladys), /is a V4/);
+  assert.match(message(gladys), /does not answer/);
+  app.stop();
+});
+
+test('I28: an Off clicked before the configuration is read, for another IPX800: never adopted', async () => {
+  const device = switchOf('r1');
+  const { world, w4 } = twoIpx();
+  let calls = 0;
+  const { app, gladys, wait, act, lines } = await setup({
+    config: V4_THERE,
+    devices: [device],
+    world,
+    store: memoryStore(boundMemory(V5_RELAYS)),
+    getConfig: async () => {
+      calls += 1;
+      if (calls <= 2) throw new Error('Gladys busy');
+      return V4_THERE;
+    },
+  });
+  app.onConnected(() => gladys.getConfig());
+  await wait(10);
+  const ack = await act(
+    gladys.fake.setValue(device, { external_id: F('relay', 'r1', 'switch') }, 0),
+  );
+  assert.match(ack.error, /gardée et envoyée dès sa lecture/);
+  await wait(10 * SECOND);
+  assert.equal(w4.writes().length, 0);
+  assert.ok(
+    lines.some((l) =>
+      /clicked before the configuration: not sent \(not the IPX800 of the devices\)/.test(l),
+    ),
+    lines.join('\n'),
+  );
   app.stop();
 });

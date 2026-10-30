@@ -21,8 +21,8 @@
         "fr": "Votre IPX800"
       },
       "description": {
-        "en": "Brings up to three GCE Electronics IPX800 V4 or V5 into Gladys through their local HTTP API and their API key: relays (read only unless you list them below), digital inputs, pilot-wire zones of the X-4FP and X-THL sensors. Pilot wire: Off and Frost protection go first, without any option (see the guide for their limits); Eco and Comfort only once allowed below. Each IPX800 keeps its own devices: another one never gets their commands. Never tested with a real device. Not affiliated with GCE Electronics.",
-        "fr": "Amène dans Gladys jusqu’à trois IPX800 V4 ou V5 de GCE Electronics par leur API HTTP locale et leur clé d’API : relais (en lecture seule sauf ceux listés ci-dessous), entrées, zones de fil pilote des X-4FP et capteurs X-THL. Fil pilote : Arrêt et Hors-gel passent en premier, sans option (limites dans le guide) ; Éco et Confort seulement une fois autorisés ci-dessous. Chaque IPX800 garde ses propres appareils : un autre ne reçoit jamais leurs commandes. Jamais testé avec un vrai appareil. Sans lien avec GCE Electronics."
+        "en": "Brings up to three GCE Electronics IPX800 V4 or V5 into Gladys through their local HTTP API and their API key: relays (read only unless you list them below), digital inputs, pilot-wire zones of the X-4FP and X-THL sensors. Pilot wire: Off and Frost protection go first, without any option (see the guide for their limits); Eco and Comfort only once allowed below. Each IPX800 keeps its own devices: another one does not get their commands (limits in the guide). Never tested with a real device. Not affiliated with GCE Electronics.",
+        "fr": "Amène dans Gladys jusqu’à trois IPX800 V4 ou V5 de GCE Electronics par leur API HTTP locale et leur clé d’API : relais (en lecture seule sauf ceux listés ci-dessous), entrées, zones de fil pilote des X-4FP et capteurs X-THL. Fil pilote : Arrêt et Hors-gel passent en premier, sans option (limites dans le guide) ; Éco et Confort seulement une fois autorisés ci-dessous. Chaque IPX800 garde ses propres appareils : un autre ne reçoit pas leurs commandes (limites dans le guide). Jamais testé avec un vrai appareil. Sans lien avec GCE Electronics."
       },
       "links": [
         {
@@ -223,8 +223,8 @@
         "fr": "IPX800 n°2 (facultatif)"
       },
       "description": {
-        "en": "A second IPX800 of the house (a V4 next to a V5, say), with its own devices: fill in its model, its address and its API key; leave empty otherwise. Never move an IPX800 from one slot to another: its devices stay with their slot. The poll interval, the heating option and the language above are shared.",
-        "fr": "Un deuxième IPX800 de la maison (une V4 à côté d’une V5, par exemple), avec ses propres appareils : renseignez son modèle, son adresse et sa clé d’API ; laissez vide sinon. Ne déplacez jamais un IPX800 d’un emplacement à un autre : ses appareils restent avec leur emplacement. L’intervalle de lecture, l’option de chauffage et la langue ci-dessus sont communs."
+        "en": "A second IPX800 of the house (a V4 next to a V5, say), with its own devices: fill in its model, its address and its API key; leave empty otherwise. Never move an IPX800 from one slot to another (its devices stay with their slot), nor put one IPX800 in two slots. The poll interval, the heating option and the language above are shared.",
+        "fr": "Un deuxième IPX800 de la maison (une V4 à côté d’une V5, par exemple), avec ses propres appareils : renseignez son modèle, son adresse et sa clé d’API ; laissez vide sinon. Ne déplacez jamais un IPX800 d’un emplacement à un autre (ses appareils restent avec leur emplacement), et ne mettez pas un IPX800 dans deux emplacements. L’intervalle de lecture, l’option de chauffage et la langue ci-dessus sont communs."
       }
     },
     {
@@ -325,8 +325,8 @@
         "fr": "IPX800 n°3 (facultatif)"
       },
       "description": {
-        "en": "A third IPX800 of the house (a V4 next to a V5, say), with its own devices: fill in its model, its address and its API key; leave empty otherwise. Never move an IPX800 from one slot to another: its devices stay with their slot. The poll interval, the heating option and the language above are shared.",
-        "fr": "Un troisième IPX800 de la maison (une V4 à côté d’une V5, par exemple), avec ses propres appareils : renseignez son modèle, son adresse et sa clé d’API ; laissez vide sinon. Ne déplacez jamais un IPX800 d’un emplacement à un autre : ses appareils restent avec leur emplacement. L’intervalle de lecture, l’option de chauffage et la langue ci-dessus sont communs."
+        "en": "A third IPX800 of the house (a V4 next to a V5, say), with its own devices: fill in its model, its address and its API key; leave empty otherwise. Never move an IPX800 from one slot to another (its devices stay with their slot), nor put one IPX800 in two slots. The poll interval, the heating option and the language above are shared.",
+        "fr": "Un troisième IPX800 de la maison (une V4 à côté d’une V5, par exemple), avec ses propres appareils : renseignez son modèle, son adresse et sa clé d’API ; laissez vide sinon. Ne déplacez jamais un IPX800 d’un emplacement à un autre (ses appareils restent avec leur emplacement), et ne mettez pas un IPX800 dans deux emplacements. L’intervalle de lecture, l’option de chauffage et la langue ci-dessus sont communs."
       }
     },
     {
@@ -436,8 +436,8 @@
         "fr": "Rattacher les appareils"
       },
       "description": {
-        "en": "Only when the status asks for it, after you REPLACED an IPX800 (or after a reset of the integration's data): its devices then drive the IPX800 read now. Two clicks within a minute. Never to bring in another IPX800: give it its own slot.",
-        "fr": "Seulement quand l’état le demande, après avoir REMPLACÉ un IPX800 (ou une remise à zéro des données de l’intégration) : ses appareils pilotent alors l’IPX800 lu en ce moment. Deux clics dans la minute. Jamais pour ajouter un autre IPX800 : donnez-lui son propre emplacement."
+        "en": "Only when the status asks for it: after you replaced an IPX800, changed the address of a V4, to confirm devices created with 0.1.2, or when the MAC address of a V5 can no longer be read. The devices of the slot chosen then drive the IPX800 read now. Two clicks within a minute. Never to bring in another IPX800: give it its own slot.",
+        "fr": "Seulement quand l’état le demande : après avoir remplacé un IPX800, changé l’adresse d’une V4, pour confirmer des appareils créés avec la 0.1.2, ou quand l’adresse MAC d’une V5 ne peut plus être lue. Les appareils de l’emplacement choisi pilotent alors l’IPX800 lu en ce moment. Deux clics dans la minute. Jamais pour ajouter un autre IPX800 : donnez-lui son propre emplacement."
       },
       "timeout_seconds": 30,
       "fields": [
