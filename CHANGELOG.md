@@ -10,6 +10,8 @@ the notes of the version's GitHub Release.
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-10-30
+
 ### Added
 
 - Up to three IPX800 in one installation (a V5 and a V4, say): "IPX800 #2"
@@ -90,6 +92,7 @@ the notes of the version's GitHub Release.
   Comfort behind an option, off by default), X-THL sensors; "Test the
   connection".
 
-[Unreleased]: https://github.com/LM1LC3N7/gladys-ipx800/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/LM1LC3N7/gladys-ipx800/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/LM1LC3N7/gladys-ipx800/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/LM1LC3N7/gladys-ipx800/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/LM1LC3N7/gladys-ipx800/releases/tag/v0.1.1
